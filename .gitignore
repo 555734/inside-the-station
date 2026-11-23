@@ -1,0 +1,6 @@
+cache/
+fonts/*.ttf
+render/*.exr
+render/test*
+render/*.tmp.png
+__pycache__/
