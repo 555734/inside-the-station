@@ -27,6 +27,8 @@ import build_scene as B  # noqa: E402  (material / mesh helpers)
 import textures as T     # noqa: E402
 import umeda_gfx as UG   # noqa: E402
 import umeda_vault as UV  # noqa: E402
+import umeda_surface as US  # noqa: E402
+import umeda_props as UP  # noqa: E402
 from scipy import ndimage  # noqa: E402
 
 ROOT = os.path.join(HERE, "..", "..")
@@ -261,11 +263,123 @@ def add_wear(mat, scale=0.8, alb=0.10, rough=0.10, seed=0.0):
     return mat
 
 
+def _uv_scale(mat, scale):
+    """Insert a Mapping node after the UV Map node (box UVs are in metres)."""
+    nt = mat.node_tree
+    uvn = [n for n in nt.nodes if n.bl_idname == "ShaderNodeUVMap"][0]
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (scale, scale, 1.0)
+    for lk in list(uvn.outputs["UV"].links):
+        nt.links.new(mp.outputs["Vector"], lk.to_socket)
+    nt.links.new(uvn.outputs["UV"], mp.inputs["Vector"])
+    return mat
+
+
+def tactile_mat(name, kind, N=1024, size=0.6):
+    """JIS-style tactile blocks, 30 cm: 5x5 truncated domes (warning) or 4 bars (guide line,
+    running along U). Height map in metres -> normals; tops are polished by feet, the base holds dirt."""
+    path = os.path.join(T.CACHE, f"tactile_{kind}_{N}.npz")
+    if not os.path.exists(path):
+        px = size / N
+        c = (np.arange(N, dtype=np.float32) + 0.5) * px
+        U, V = np.meshgrid(c, c)
+        lu, lv = np.mod(U, 0.3), np.mod(V, 0.3)
+        edge = np.minimum(np.minimum(lu, 0.3 - lu), np.minimum(lv, 0.3 - lv))
+        if kind == "dots":
+            du = np.mod(lu, 0.06) - 0.03
+            dv = np.mod(lv, 0.06) - 0.03
+            r = np.sqrt(du * du + dv * dv)
+            prof = np.clip((0.0135 - r) / 0.0025, 0, 1)
+            cap = np.clip(1 - (r / 0.011) ** 2, 0, 1)
+            h = 0.004 * prof + 0.001 * cap * (r < 0.011)
+        else:
+            dv = np.abs(np.mod(lv, 0.075) - 0.0375)
+            inbar = (lu > 0.015) & (lu < 0.285)
+            endf = np.clip(np.minimum(lu - 0.015, 0.285 - lu) / 0.006, 0, 1)
+            prof = np.clip((0.0135 - dv) / 0.005, 0, 1) * inbar * endf
+            h = 0.005 * prof
+        h = h - (edge < 0.002) * 0.001
+        g = T.fbm((N, N), [1.0, 6.0], [0.5, 0.5], 7)
+        h = h + g * 0.00003
+        top = np.clip(h / 0.004, 0, 1)
+        yel = np.array([0.80, 0.52, 0.03], np.float32)
+        dirt = (1 - top) * np.clip(0.5 + 0.5 * T.fbm((N, N), [20, 60], [0.5, 0.5], 9), 0, 1)
+        alb = yel * (1 - 0.25 * dirt[..., None]) * (1 + 0.04 * g[..., None])
+        alb = np.where((edge < 0.002)[..., None], np.array([0.10, 0.09, 0.07], np.float32), alb)
+        rough = np.clip(0.55 - 0.22 * top + 0.05 * g, 0.2, 0.9)
+        d = {"albedo": alb.astype(np.float32), "rough": rough.astype(np.float32), "normal": T.height_to_normal(h, px)}
+        np.savez(path, **{k: v.astype(np.float16) for k, v in d.items()})
+    d = {k: v.astype(np.float32) for k, v in np.load(path).items()}
+    return _uv_scale(B.tiled(name, B.tex_set(name, d)), 1.0 / size)
+
+
+def checker_mat(name="checker", N=1024, size=0.3):
+    """Diamond tread steel plate for inspection covers."""
+    path = os.path.join(T.CACHE, f"checker_{N}.npz")
+    if not os.path.exists(path):
+        px = size / N
+        c = (np.arange(N, dtype=np.float32) + 0.5) * px
+        U, V = np.meshgrid(c, c)
+        p = 0.03
+        iu, iv = np.floor(U / p), np.floor(V / p)
+        fu, fv = U / p - iu - 0.5, V / p - iv - 0.5
+        alt = np.mod(iu + iv, 2) == 0
+        a, b = np.where(alt, fu + fv, fu - fv), np.where(alt, fu - fv, fu + fv)
+        lens = np.clip(1 - (a / 0.75) ** 2 - (b / 0.16) ** 2, 0, 1)
+        h = 0.0012 * np.sqrt(lens)
+        g = T.fbm((N, N), [2.0, 10.0], [0.5, 0.5], 3)
+        alb = np.stack([0.45 + 0.03 * g] * 3, -1) * np.array([1.0, 0.99, 0.97])
+        rough = np.clip(0.38 - 0.15 * (h > 0.0003) + 0.06 * g, 0.12, 0.7)
+        d = {"albedo": alb.astype(np.float32), "rough": rough.astype(np.float32), "normal": T.height_to_normal(h, px)}
+        np.savez(path, **{k: v.astype(np.float16) for k, v in d.items()})
+    d = {k: v.astype(np.float32) for k, v in np.load(path).items()}
+    m = _uv_scale(B.tiled(name, B.tex_set(name, d)), 1.0 / size)
+    m.node_tree.nodes["Principled BSDF"].inputs["Metallic"].default_value = 1.0
+    return m
+
+
+def pavers(name, pw, ph, color, gcolor, rough, seed, N=2048, size=2.4, speck=1.0):
+    """Ceramic / stone pavers for close-up: granite-like speckle, per-paver tilt and tone,
+    chipped edges, dirt in the joints, gloss varying paver by paver."""
+    path = os.path.join(T.CACHE, f"pavers_{name}_{N}.npz")
+    if not os.path.exists(path):
+        tid, lu, lv, de, row, col, px = T.tile_layout(N, size, pw, ph, 0.005, seed, 0.5)
+        is_u = de > 0
+        t = np.clip(de / 0.0012, 0, 1)
+        rng = np.random.default_rng(seed)
+        # micro-relief: rounded arris, slight tilt and doming per paver
+        h = np.sqrt(1 - (1 - t) ** 2) * 0.0008 - (~is_u) * 0.0015
+        h += is_u * (T.per_tile(tid, seed + 1, 0.0010) * (lu - pw / 2) + T.per_tile(tid, seed + 2, 0.0010) * (lv - ph / 2))
+        h += is_u * T.fbm((N, N), [2.0, 8.0], [0.5, 0.5], seed + 3) * 0.00004
+        # speckle: dark and light grains of 0.5-2 mm
+        n1 = rng.random((N, N)).astype(np.float32)
+        dark = ndimage.gaussian_filter((n1 < 0.035).astype(np.float32), 0.7)
+        light = ndimage.gaussian_filter((n1 > 0.975).astype(np.float32), 0.7)
+        mid = T.fbm((N, N), [1.5, 5.0], [0.6, 0.4], seed + 4)
+        v = T.per_tile(tid, seed + 5, 1.0)
+        base = np.array(color, np.float32)
+        lum = 1 + 0.06 * v + 0.05 * mid + speck * (0.35 * light - 0.45 * dark)
+        alb = base * lum[..., None]
+        # chipped edges: random notches along the arris
+        chip = (de < 0.004) & (T.fbm((N, N), [1.2], [1.0], seed + 6) > 0.55)
+        alb = np.where(chip[..., None], alb * 0.75, alb)
+        h = np.where(chip, h - 0.0008, h)
+        # dirt in the joints, a little darker in some
+        jd = 0.7 + 0.3 * T.fbm((N, N), [30.0], [1.0], seed + 7)
+        alb = np.where(is_u[..., None], alb, np.array(gcolor, np.float32) * jd[..., None])
+        r = rough + 0.04 * T.per_tile(tid, seed + 8, 1.0) + 0.03 * mid + 0.25 * (1 - t) ** 3
+        r = np.where(is_u, np.clip(r, 0.05, 0.9), 0.85)
+        d = {"albedo": alb.astype(np.float32), "rough": r.astype(np.float32), "normal": T.height_to_normal(h, px)}
+        np.savez(path, **{k: v_.astype(np.float16) for k, v_ in d.items()})
+    d = {k: v_.astype(np.float32) for k, v_ in np.load(path).items()}
+    return B.tiled(name, B.tex_set(name, d))
+
+
 def materials():
     M = {}
     M["b1_floor"] = stone("b1_floor2", 0.6, 0.50, 5, rough=0.16, tint=(1.0, 1.0, 0.99))
     # platform: small beige-grey pavers in running bond (photos 2019/2022)
-    M["b2_floor"] = panels("b2_pavers5", 0.30, 0.15, 0.005, (0.44, 0.43, 0.41), (0.17, 0.17, 0.16), 0.26, bond=0.5, seed=3, var=0.08)
+    M["b2_floor"] = pavers("b2r", 0.30, 0.15, (0.44, 0.43, 0.41), (0.15, 0.15, 0.14), 0.17, seed=3)
     M["wall_tile"] = B.tiled("wall_tile", B.tex_set("wall_tile", T.wall_tiles(N=2048, tile=0.20, grout=0.004, stripe_row=None, tag="_umeda")))
     M["b1_wall"] = panels("b1_wall", 1.2, 0.6, 0.006, (0.80, 0.80, 0.78), (0.25, 0.25, 0.25), 0.28, seed=5)
     M["vault"] = panels("vault_perf", 1.2, 0.6, 0.008, (0.80, 0.80, 0.78), (0.35, 0.35, 0.34), 0.45, perf=0.012, seed=7)
@@ -279,10 +393,10 @@ def materials():
     M["rail"] = B.plain("rail", (0.55, 0.52, 0.5), 0.3, metal=1.0)
     M["third_rail_cover"] = B.plain("third_rail_cover", (0.75, 0.62, 0.15), 0.5)
     M["steel"] = B.plain("steel", (0.78, 0.78, 0.77), 0.22, metal=1.0)
-    M["steel_brushed"] = B.plain("steel_brushed", (0.72, 0.72, 0.71), 0.32, metal=1.0)
+    M["steel_brushed"] = B.plain("steel_brushed", (0.72, 0.72, 0.71), 0.22, metal=1.0)
     M["psd_glass"] = B.plain("psd_glass", (0.05, 0.06, 0.07), 0.05, coat=1.0)
     M["gate_body"] = B.plain("gate_body", (0.10, 0.10, 0.11), 0.3, metal=0.5)
-    M["gate_side"] = B.plain("gate_side", (0.66, 0.66, 0.65), 0.28, metal=1.0)
+    M["gate_side"] = B.plain("gate_side", (0.70, 0.70, 0.69), 0.17, metal=1.0)
     M["gate_top"] = B.plain("gate_top", (0.02, 0.02, 0.025), 0.12, coat=1.0)
     M["gate_blue"] = B.emissive("gate_blue", (0.1, 0.35, 1.0), 6.0)
     M["gate_green"] = B.emissive("gate_green", (0.1, 1.0, 0.25), 5.0)
@@ -292,7 +406,8 @@ def materials():
     M["stair"] = stone("stair_granite", 0.6, 0.20, 31, N=1024, size=1.2, speck=0.08, rough=0.35, tint=(1.0, 1.0, 1.02))
     M["nosing"] = B.plain("nosing", (0.75, 0.6, 0.12), 0.5)
     M["glass_rail"] = B.plain("glass_rail", (0.55, 0.6, 0.6), 0.06, coat=1.0)
-    M["tactile"] = B.plain("tactile", (0.74, 0.47, 0.03), 0.45)
+    M["tactile"] = tactile_mat("tactile", "dots")
+    M["tactile_bar"] = tactile_mat("tactile_bar", "bars")
     M["bench"] = B.plain("bench", (0.55, 0.55, 0.56), 0.3, metal=0.8)
     M["downlight"] = B.emissive("downlight", (1.0, 0.95, 0.88), 40.0)
     M["glassbox"] = B.emissive("glassbox", (1.0, 0.96, 0.86), 6.0)
@@ -311,7 +426,7 @@ def materials():
     M["kiosk_white"] = B.plain("kiosk_white", (0.80, 0.80, 0.79), 0.25, coat=0.4)
     M["louver"] = B.plain("louver", (0.05, 0.05, 0.055), 0.4, metal=0.6)
     M["track_tile"] = glazed("track_tile2", 0.36, 0.27, 0.5, (0.56, 0.53, 0.51), (0.24, 0.23, 0.22))
-    M["b2_floor_band"] = panels("b2_pavers_band2", 0.30, 0.15, 0.005, (0.30, 0.25, 0.23), (0.13, 0.12, 0.11), 0.30, bond=0.5, seed=13, var=0.08)
+    M["b2_floor_band"] = pavers("b2bandr", 0.30, 0.15, (0.30, 0.25, 0.23), (0.12, 0.11, 0.10), 0.18, seed=13)
     M["psd_panel"] = B.plain("psd_panel", (0.78, 0.78, 0.77), 0.3, coat=0.3)
     M["door_dark"] = B.plain("door_dark", (0.02, 0.025, 0.03), 0.08, coat=1.0)
     M["esc_clad"] = B.plain("esc_clad", (0.55, 0.54, 0.52), 0.3, metal=0.6)
@@ -322,7 +437,7 @@ def materials():
     M["portal_sign"] = B.printed("portal_sign", gfx["portal_sign"], rough=0.3, coat=0.0, emission=1.4)
     M["psd_label"] = B.printed("psd_label", gfx["psd_label"], rough=0.35, coat=0.0)
     M["ceil_b2"] = panels("ceil_b2b", 1.2, 0.6, 0.006, (0.30, 0.30, 0.30), (0.08, 0.08, 0.08), 0.40, perf=0.010, seed=27)
-    M["col_steel"] = B.plain("col_steel", (0.68, 0.68, 0.67), 0.30, metal=1.0)
+    M["col_steel"] = B.plain("col_steel", (0.70, 0.70, 0.69), 0.20, metal=1.0)
     M["wall_white"] = glazed("wall_white", 0.60, 0.30, 0.5, (0.70, 0.70, 0.68), (0.32, 0.32, 0.31), size=2.4)
     M["clad_dark"] = B.plain("clad_dark", (0.06, 0.065, 0.07), 0.35, metal=0.3)
     M["navy"] = B.plain("navy", (0.02, 0.03, 0.12), 0.35, coat=0.3)
@@ -346,6 +461,16 @@ def materials():
                             ("b1_floor", 0.5, 0.07, 0.08, 2.0), ("track_tile", 1.5, 0.05, 0.05, 3.0)):
         if k in M:
             add_wear(M[k], sc, a, r, sd)
+    M["lamp_red"] = B.emissive("lamp_red", (1.0, 0.08, 0.05), 6.0)
+    M["lamp_amber"] = B.emissive("lamp_amber", (1.0, 0.45, 0.05), 5.0)
+    M["paint_red"] = B.plain("paint_red", (0.55, 0.03, 0.03), 0.3, coat=0.5)
+    M["paint_yellow"] = B.plain("paint_yellow", (0.80, 0.60, 0.02), 0.35, coat=0.3)
+    M["checker"] = checker_mat()
+    M["screen_bezel"] = B.plain("screen_bezel", (0.01, 0.01, 0.012), 0.08, coat=1.0)
+    for k in ("psd_sticker", "ic_reader", "gate_ok", "gate_ng", "ic_only", "hydrant", "aed", "estop", "asset"):
+        em = {"ic_reader": 1.5, "gate_ok": 3.0, "gate_ng": 3.0}.get(k, 0.0)
+        M[k] = B.printed(k, gfx[k], rough=0.35, coat=0.3 if k not in ("ic_only",) else 0.0, emission=em)
+    US.apply_all(M)
     return M
 
 
@@ -437,7 +562,7 @@ def build_b1_corridor(M):
     xa = x0 + 1
     for (ca, cb) in cuts + [(x1 - 1, x1)]:
         if ca > xa:
-            bx(f"b1_tactile_corr_{xa:.0f}", (xa, yt - 0.15, Z_B1), (ca, yt + 0.15, Z_B1 + 0.005), M["tactile"], c)
+            bx(f"b1_tactile_corr_{xa:.0f}", (xa, yt - 0.15, Z_B1), (ca, yt + 0.15, Z_B1 + 0.005), M["tactile_bar"], c)
         xa = max(xa, cb)
     # black hanging signs before each stair
     for k in ("F", "G", "H"):
@@ -587,8 +712,19 @@ def navy_kiosk(name, lo, hi, M, idx):
     else:
         faces = ((x0 - 0.006, (y0 + y1) / 2, (0, -1, 0)), (x1 + 0.006, (y0 + y1) / 2, (0, 1, 0)))
         w = (y1 - y0) - 0.14
+    bx(name + "_cap", (x0 - 0.01, y0 - 0.01, Z_B2 + 2.45), (x1 + 0.01, y1 + 0.01, Z_B2 + 2.48), M["steel_brushed"], c, 0.004)
+    bx(name + "_kick", (x0 - 0.008, y0 - 0.008, Z_B2), (x1 + 0.008, y1 + 0.008, Z_B2 + 0.09), M["steel_brushed"], c, 0.003)
     for j, (fx, fy, right) in enumerate(faces):
-        put(B.image_quad(f"{name}_scr{j}", (fx, fy, Z_B2 + 1.45), right, (0, 0, 1), w, w * 1.6, M[f"adp{(idx + j + 1) % 3}"]), c)
+        rv = Vector(right)
+        nrm = rv.cross(Vector((0, 0, 1)))
+        hh = w * 1.6
+        put(B.image_quad(f"{name}_scr{j}", (fx + nrm.x * 0.008, fy + nrm.y * 0.008, Z_B2 + 1.45), right, (0, 0, 1), w, hh, M[f"adp{(idx + j + 1) % 3}"]), c)
+        for (du, dz, sw, sh) in ((0, hh / 2 + 0.02, w + 0.08, 0.04), (0, -hh / 2 - 0.02, w + 0.08, 0.04),
+                                 (w / 2 + 0.02, 0, 0.04, hh), (-w / 2 - 0.02, 0, 0.04, hh)):
+            ob = B.box(f"{name}_bz{j}", (0, 0, 0), (sw, 0.016, sh), M["screen_bezel"], 0.003)
+            ob.location = (fx + rv.x * du + nrm.x * 0.006, fy + rv.y * du + nrm.y * 0.006, Z_B2 + 1.45 + dz)
+            ob.rotation_euler = (0, 0, math.atan2(rv.y, rv.x))
+            put(ob, c)
 
 
 def build_vault(M):
@@ -612,10 +748,28 @@ def kiosk(name, lo, hi, M, idx):
              (x0 - 0.004, (y0 + y1) / 2, (0, -1, 0), y1 - y0), (x1 + 0.004, (y0 + y1) / 2, (0, 1, 0), y1 - y0)]
     for j, (fx, fy, right, width) in enumerate(faces):
         w = min(0.56, width - 0.14)
-        q = B.image_quad(f"{name}_scr{j}", (fx, fy, Z_B2 + 1.50), right, (0, 0, 1), w, w * 1.78, M[f"adp{(idx + j) % 3}"])
-        put(q, c)
-        # louvre grille in the top band
         nrm = Vector(right).cross(Vector((0, 0, 1)))
+        hgt = w * 1.78
+        q = B.image_quad(f"{name}_scr{j}", (fx + nrm.x * 0.008, fy + nrm.y * 0.008, Z_B2 + 1.50), right, (0, 0, 1), w, hgt, M[f"adp{(idx + j) % 3}"])
+        put(q, c)
+        # glossy black bezel around the screen
+        rv = Vector(right)
+        for (du, dz, sw, sh) in ((0, hgt / 2 + 0.02, w + 0.08, 0.04), (0, -hgt / 2 - 0.02, w + 0.08, 0.04),
+                                 (w / 2 + 0.02, 0, 0.04, hgt), (-w / 2 - 0.02, 0, 0.04, hgt)):
+            ob = B.box(f"{name}_bz{j}", (0, 0, 0), (sw, 0.016, sh), M["screen_bezel"], 0.003)
+            ob.location = (fx + rv.x * du + nrm.x * 0.006, fy + rv.y * du + nrm.y * 0.006, Z_B2 + 1.50 + dz)
+            ob.rotation_euler = (0, 0, math.atan2(rv.y, rv.x))
+            put(ob, c)
+        # screws in the white top band, asset label near the base
+        for su in (-width / 2 + 0.06, width / 2 - 0.06):
+            for sz in (zt - 0.37, zt - 0.03):
+                sc_ = B.cylinder(f"{name}_scw{j}", (0, 0, 0), 0.006, 0.004, M["steel"], segs=10)
+                sc_.location = (fx + rv.x * su + nrm.x * 0.024, fy + rv.y * su + nrm.y * 0.024, sz)
+                sc_.rotation_euler = (math.pi / 2, 0, math.atan2(rv.y, rv.x))
+                put(sc_, c)
+        if j < 2:
+            put(B.image_quad(f"{name}_tag{j}", (fx + rv.x * (width / 2 - 0.16) + nrm.x * 0.002, fy + rv.y * (width / 2 - 0.16) + nrm.y * 0.002, Z_B2 + 0.32), right, (0, 0, 1), 0.15, 0.05, M["asset"]), c)
+        # louvre grille in the top band
         for kk in range(6):
             zz = zt - 0.33 + kk * 0.045
             gx, gy = fx + nrm.x * 0.025, fy + nrm.y * 0.025
@@ -692,6 +846,11 @@ def build_psd(M):
                 continue
             bx(f"psd_{nm}_cab_{k}", (a, y_in - 0.16, Z_B2), (b, y_in + 0.16, Z_B2 + 1.35), M["psd_panel"], "B2", 0.02)
             bx(f"psd_{nm}_cabtop_{k}", (a + 0.02, y_in - 0.165, Z_B2 + 1.30), (b - 0.02, y_in + 0.165, Z_B2 + 1.36), M["steel"], "B2", 0.01)
+            # panel joints on the platform face of the cabinet
+            yf_ = y_in + side * 0.161
+            for xs_ in np.arange(a + 0.6, b - 0.3, 0.6):
+                bx(f"psd_{nm}_seam_{k}_{xs_:.1f}", (xs_ - 0.002, min(yf_, yf_ + side * 0.002), Z_B2 + 0.12), (xs_ + 0.002, max(yf_, yf_ + side * 0.002), Z_B2 + 1.28), M["panel_grey"], "B2")
+            bx(f"psd_{nm}_kick_{k}", (a + 0.01, min(yf_, yf_ + side * 0.004), Z_B2), (b - 0.01, max(yf_, yf_ + side * 0.004), Z_B2 + 0.10), M["steel_brushed"], "B2")
             # red car / door number label on the platform face
             if b - a > 0.8:
                 yl = y_in + side * 0.166
@@ -712,6 +871,13 @@ def build_psd(M):
                 x0_ = xd + h_ * 1.0
                 bx(f"psd_{nm}_leaf_{i_}{h_}", (x0_ + 0.01, y_in - 0.025, Z_B2 + 0.04), (x0_ + 0.99, y_in + 0.025, Z_B2 + 1.30), M["steel_brushed"], "B2", 0.004)
                 bx(f"psd_{nm}_lwin_{i_}{h_}", (x0_ + 0.25, y_in - 0.028, Z_B2 + 0.35), (x0_ + 0.75, y_in + 0.028, Z_B2 + 1.18), M["psd_glass"], "B2", 0.01)
+                # caution sticker on the platform face, rubber edge where the leaves meet
+                ys_ = y_in + side * 0.0285
+                put(B.image_quad(f"psd_{nm}_stk_{i_}{h_}", (x0_ + 0.5, ys_, Z_B2 + 0.24), (-side, 0, 0), (0, 0, 1), 0.36, 0.18, M["psd_sticker"]), "B2")
+                xe_ = x0_ + (0.99 if h_ == 0 else 0.01)
+                bx(f"psd_{nm}_rub_{i_}{h_}", (xe_ - 0.012, y_in - 0.03, Z_B2 + 0.05), (xe_ + 0.012, y_in + 0.03, Z_B2 + 1.29), M["handrail"], "B2", 0.004)
+            # door-open lamp on the cabinet top next to the door
+            put(B.cylinder(f"psd_{nm}_lamp_{i_}", (xd - 0.15, y_in, Z_B2 + 1.37), 0.025, 0.03, M["lamp_amber"], segs=12), "B2")
 
 
 def build_tactile(M):
@@ -993,7 +1159,7 @@ def guide_lines(M):
     c = "B2"
     yw = PLAN["edges_y"]["lo"]
     xb = st["x_bot"] - 0.95
-    bx("gl_j_long", (40.0, yw + 2.05, Z_B2), (xb, yw + 2.35, Z_B2 + 0.006), M["tactile"], c)
+    bx("gl_j_long", (40.0, yw + 2.05, Z_B2), (xb, yw + 2.35, Z_B2 + 0.006), M["tactile_bar"], c)
     bx("gl_j_cross", (xb - 5.3, yw + 1.0, Z_B2), (xb - 5.0, PLAN["vault"]["y_east"] - 0.6, Z_B2 + 0.006), M["tactile"], c)
     bx("gl_j_foot", (xb - 0.3, yw + 2.05, Z_B2), (xb, st["y1"] + 0.4, Z_B2 + 0.006), M["tactile"], c)
 
@@ -1034,10 +1200,32 @@ def build_gates(M):
                 for j_, (off, size, mat, bev) in enumerate(parts):
                     if j_ >= 8 and (i == 0 and j_ == 9 or i == n and j_ == 8):
                         continue          # no flap on the outer side of the end cabinets
+                    if j_ in (2, 3, 4, 5):
+                        continue          # replaced by textured parts below
                     ob = B.box(f"gate_{k}_{j_}", (0, 0, 0), size, mat, bev)
                     ob.location = (p.x + ca * off[0] - sa * off[1], p.y + sa * off[0] + ca * off[1], Z_B1 + off[2])
                     ob.rotation_euler = (0, 0, ang)
                     put(ob, "B1")
+
+                def at(u, v, z):
+                    return (p.x + ca * u - sa * v, p.y + sa * u + ca * v, Z_B1 + z)
+                fwd = (ca, sa, 0)
+                side_v = (-sa, ca, 0)
+                for su in (-1, 1):
+                    u = su * 0.55 * gsg
+                    # IC reader (textured, glowing) and the ticket slot / small display on the top
+                    put(B.image_quad(f"gate_{k}_ic{su}", at(u, 0, 1.0065), fwd if su * gsg < 0 else (-ca, -sa, 0), side_v if su * gsg < 0 else (sa, -ca, 0), 0.15, 0.20, M["ic_reader"]), "B1")
+                    sl = B.box(f"gate_{k}_slot{su}", (0, 0, 0), (0.012, 0.10, 0.004), M["handrail"])
+                    sl.location = at(su * 0.25 * gsg, 0, 1.006)
+                    sl.rotation_euler = (0, 0, ang)
+                    put(sl, "B1")
+                    put(B.image_quad(f"gate_{k}_lcd{su}", at(su * 0.32 * gsg, 0.0, 1.0068), fwd, side_v, 0.06, 0.10, M["dep1"]), "B1")
+                    # end-face indicator: arrow on the entry side, arrow or cross on the exit side
+                    ok = su < 0 or i % 3 != 0
+                    nrmv = (su * gsg * ca, su * gsg * sa, 0)
+                    rgt = (-nrmv[1], nrmv[0], 0)
+                    put(B.image_quad(f"gate_{k}_ind{su}", at(su * 0.856 * gsg, 0, 0.78), rgt, (0, 0, 1), 0.12, 0.12, M["gate_ok" if ok else "gate_ng"]), "B1")
+                    put(B.image_quad(f"gate_{k}_pnl{su}", at(su * 0.856 * gsg, 0, 0.60), rgt, (0, 0, 1), 0.14, 0.16, M["ic_reader"]), "B1")
                 k += 1
             if name == "北改札":
                 # black fascia band over the gate line with the gate name on the unpaid side
@@ -1258,12 +1446,14 @@ def main():
     ap.add_argument("--cam", default="", help="override: x,y,z,pitch_deg,yaw_deg,lens")
     ap.add_argument("--blend", default="")
     ap.add_argument("--multi", default="", help="several camera specs separated by ';'")
+    ap.add_argument("--border", default="", help="render only this region: x0,y0,x1,y1 as fractions (y up)")
     args = ap.parse_args()
     t0 = time.time()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     ns = argparse.Namespace(out=args.out, width=args.width, samples=args.samples, noise=args.noise)
     B.render_settings(ns)
-    bpy.context.scene.cycles.blur_glossy = 0.6
+    bpy.context.scene.cycles.blur_glossy = 0.05     # keep reflections crisp
+    bpy.context.scene.cycles.sample_clamp_indirect = 12.0
     M = materials()
     print(f"materials {time.time() - t0:.1f}s")
     build_b1(M)
@@ -1272,6 +1462,7 @@ def main():
     build_gates(M)
     build_exits(M)
     build_details(M)
+    UP.build(sys.modules[__name__], M)
     if args.view not in ("top", "overview"):
         build_b1_lights(M)
     build_camera(args.view, args)
@@ -1290,6 +1481,11 @@ def main():
     if args.view == "top":
         top_setup()
     print(f"built {time.time() - t0:.1f}s objects={len(bpy.data.objects)}")
+    if args.border:
+        r = bpy.context.scene.render
+        r.use_border = True
+        r.use_crop_to_border = True
+        r.border_min_x, r.border_min_y, r.border_max_x, r.border_max_y = [float(v) for v in args.border.split(",")]
     if args.blend:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(args.blend))
     if args.multi:

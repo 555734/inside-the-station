@@ -216,6 +216,45 @@ def band_ad(kind):
     return add_print_texture(im, 30 + kind, 2.0)
 
 
+def enrich(im, seed):
+    """Fine print, a QR code, a small logo and a legal line: the dense small information that
+    real posters carry and that shows when the image is enlarged."""
+    rng = np.random.default_rng(seed)
+    W, H = im.size
+    d = ImageDraw.Draw(im)
+    fh = max(12, H // 60)
+    y0 = H - int(H * 0.085)
+    d.rectangle([0, y0, W, H], fill=(250, 250, 250))
+    words = ["詳しくはウェブサイトをご覧ください", "※画像はイメージです", "価格は税込表示", "一部店舗を除く",
+             "なくなり次第終了", "お問い合わせ 0120-000-000", "受付時間 10:00-18:00", "© 2024"]
+    x = int(W * 0.03)
+    yy = y0 + int(fh * 0.6)
+    for k in range(3):
+        line = "  ".join(rng.choice(words, 3, replace=False))
+        text(d, (x, yy + k * int(fh * 1.35)), line, F("sansM", fh), (80, 80, 80))
+    q = int(H * 0.075)
+    qx, qy = W - q - int(W * 0.02), y0 + (H - y0 - q) // 2
+    d.rectangle([qx, qy, qx + q, qy + q], fill=(255, 255, 255))
+    cells = 21
+    cs = q / cells
+    bits = rng.random((cells, cells)) < 0.5
+    for (fx, fy) in ((0, 0), (cells - 7, 0), (0, cells - 7)):
+        bits[fy:fy + 7, fx:fx + 7] = False
+        d.rectangle([qx + fx * cs, qy + fy * cs, qx + (fx + 7) * cs, qy + (fy + 7) * cs], fill=(0, 0, 0))
+        d.rectangle([qx + (fx + 1) * cs, qy + (fy + 1) * cs, qx + (fx + 6) * cs, qy + (fy + 6) * cs], fill=(255, 255, 255))
+        d.rectangle([qx + (fx + 2) * cs, qy + (fy + 2) * cs, qx + (fx + 5) * cs, qy + (fy + 5) * cs], fill=(0, 0, 0))
+    for i in range(cells):
+        for j in range(cells):
+            if bits[j, i]:
+                d.rectangle([qx + i * cs, qy + j * cs, qx + (i + 1) * cs, qy + (j + 1) * cs], fill=(0, 0, 0))
+    # small logo mark top right
+    lr = int(min(W, H) * 0.045)
+    lx, ly = W - int(W * 0.04) - lr, int(H * 0.05)
+    d.ellipse([lx - lr, ly - lr + lr, lx + lr, ly + lr + lr], outline=(255, 255, 255), width=max(2, lr // 6))
+    text(d, (lx - lr * 3.2, ly + lr), "BRAND", F("sansB", max(12, lr)), (255, 255, 255), "mm")
+    return im
+
+
 def ad_panel(kind):
     W, H = 1800, 1000
     if kind == 0:
@@ -450,6 +489,95 @@ def exit_green():
     return im
 
 
+def psd_sticker():
+    """Door caution sticker (generic wording and pictogram)."""
+    W, H = 600, 300
+    im = Image.new("RGB", (W, H), (255, 214, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([8, 8, W - 8, H - 8], outline=(20, 20, 20), width=6)
+    d.rectangle([30, 40, 150, 260], outline=(20, 20, 20), width=8)
+    d.rectangle([150, 40, 270, 260], outline=(20, 20, 20), width=8)
+    d.ellipse([125, 120, 175, 170], fill=(220, 30, 30))
+    text(d, (290, 100), "ドアに", F("sansB", 54), (20, 20, 20), "lm")
+    text(d, (290, 165), "手をはさまれない", F("sansB", 40), (20, 20, 20), "lm")
+    text(d, (290, 220), "よう ご注意ください", F("sansB", 34), (20, 20, 20), "lm")
+    return add_print_texture(im, 61, 2.0)
+
+
+def ic_reader():
+    W, H = 400, 300
+    im = Image.new("RGB", (W, H), (20, 60, 170))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle([20, 20, W - 20, H - 20], 30, outline=(160, 200, 255), width=6)
+    for k in range(3):
+        d.arc([150 - 40 * k, 90 - 40 * k, 250 + 40 * k, 190 + 40 * k], 200, 340, fill=(220, 235, 255), width=8)
+    text(d, (W / 2, 230), "IC", F("sansB", 70), (255, 255, 255), "mm")
+    return im
+
+
+def gate_indicator(ok):
+    W = 200
+    im = Image.new("RGB", (W, W), (10, 10, 12))
+    d = ImageDraw.Draw(im)
+    if ok:
+        arrow(d, W // 2, W // 2, 150, (60, 255, 110), "up")
+    else:
+        d.line([(45, 45), (155, 155)], fill=(255, 50, 40), width=26)
+        d.line([(155, 45), (45, 155)], fill=(255, 50, 40), width=26)
+    return im
+
+
+def ic_only_decal():
+    W, H = 700, 300
+    im = Image.new("RGB", (W, H), (60, 70, 170))
+    d = ImageDraw.Draw(im)
+    text(d, (160, 115), "IC", F("sansB", 120), (255, 255, 255), "mm")
+    text(d, (160, 220), "専用", F("sansB", 70), (255, 255, 255), "mm")
+    arrow(d, 520, 150, 220, (255, 255, 255), "up")
+    text(d, (350, 270), "IC Card Only", F("sansM", 34), (230, 230, 255), "mm")
+    return add_print_texture(im, 62, 3.0)
+
+
+def hydrant_sign():
+    W, H = 500, 160
+    im = Image.new("RGB", (W, H), (210, 25, 30))
+    d = ImageDraw.Draw(im)
+    text(d, (W / 2, 70), "消火栓", F("sansB", 90), (255, 255, 255), "mm")
+    text(d, (W / 2, 135), "FIRE HYDRANT", F("sansM", 34), (255, 255, 255), "mm")
+    return im
+
+
+def aed_sign():
+    W, H = 400, 300
+    im = Image.new("RGB", (W, H), (0, 140, 80))
+    d = ImageDraw.Draw(im)
+    d.ellipse([40, 50, 200, 210], fill=(255, 255, 255))
+    d.polygon([(120, 80), (95, 140), (125, 140), (105, 190), (160, 115), (130, 115), (150, 80)], fill=(220, 30, 30))
+    text(d, (290, 120), "AED", F("sansB", 90), (255, 255, 255), "mm")
+    text(d, (290, 220), "自動体外式除細動器", F("sansM", 22), (255, 255, 255), "mm")
+    return im
+
+
+def emergency_button():
+    W, H = 300, 400
+    im = Image.new("RGB", (W, H), (250, 210, 0))
+    d = ImageDraw.Draw(im)
+    text(d, (W / 2, 60), "非常停止", F("sansB", 56), (20, 20, 20), "mm")
+    text(d, (W / 2, 120), "ボタン", F("sansB", 56), (20, 20, 20), "mm")
+    d.ellipse([90, 180, 210, 300], fill=(30, 30, 30))
+    d.ellipse([105, 195, 195, 285], fill=(225, 30, 30))
+    text(d, (W / 2, 350), "EMERGENCY STOP", F("sansM", 26), (20, 20, 20), "mm")
+    return im
+
+
+def asset_label(n):
+    im = Image.new("RGB", (300, 100), (235, 235, 235))
+    d = ImageDraw.Draw(im)
+    text(d, (150, 35), f"UMD-DS-{n:02d}", F("sansM", 34), (40, 40, 40), "mm")
+    text(d, (150, 75), "管理番号 / 取扱注意", F("sansM", 20), (60, 60, 60), "mm")
+    return im
+
+
 def build_all():
     os.makedirs(OUT, exist_ok=True)
     items = {
@@ -475,11 +603,15 @@ def build_all():
         "b1_sign_down": b1_sign_down(),
         "gate_fascia_n": gate_fascia_n(),
         "exit_green": exit_green(),
+        "psd_sticker": psd_sticker(), "ic_reader": ic_reader(),
+        "gate_ok": gate_indicator(True), "gate_ng": gate_indicator(False),
+        "ic_only": ic_only_decal(), "hydrant": hydrant_sign(), "aed": aed_sign(),
+        "estop": emergency_button(), "asset": asset_label(3),
         "queue0": queue_mark(0), "queue1": queue_mark(1),
         "led_vision": led_campaign(),
-        "band0": band_ad(0), "band1": band_ad(1), "band2": band_ad(2),
-        "ad0": ad_panel(0), "ad1": ad_panel(1), "ad2": ad_panel(2),
-        "adp0": ad_portrait(0), "adp1": ad_portrait(1), "adp2": ad_portrait(2),
+        "band0": enrich(band_ad(0), 7), "band1": enrich(band_ad(1), 8), "band2": enrich(band_ad(2), 9),
+        "ad0": enrich(ad_panel(0), 1), "ad1": enrich(ad_panel(1), 2), "ad2": enrich(ad_panel(2), 3),
+        "adp0": enrich(ad_portrait(0), 4), "adp1": enrich(ad_portrait(1), 5), "adp2": enrich(ad_portrait(2), 6),
     }
     paths = {}
     for k, im in items.items():
