@@ -85,8 +85,9 @@ def build(h, M):
     # --- under the arch: hydrant cabinets on the central wall between arches
     V = H.VAULT
     if V is not None:
-        for j, x in enumerate(np.arange(V.x0 + 2.0, V.x1 - 3, 9.0)):
-            hydrant(f"hydv_{j}", x, V.ye, -1, M, "B2", H.Z_B2)
+        # between each arched opening and the poster before it (openings at x0+5+9k, 1.6 m wide)
+        for j, x in enumerate(np.arange(V.x0 + 5.0, V.x1 - 3, 9.0)):
+            hydrant(f"hydv_{j}", x - 1.5, V.ye, -1, M, "B2", H.Z_B2)
     # --- emergency-stop buttons on round columns near the track-1 edge
     walls = P["b2_walls"]
     ye = P["edges_y"]["up"]

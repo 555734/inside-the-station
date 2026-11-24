@@ -379,7 +379,7 @@ def materials():
     M = {}
     M["b1_floor"] = stone("b1_floor2", 0.6, 0.50, 5, rough=0.16, tint=(1.0, 1.0, 0.99))
     # platform: small beige-grey pavers in running bond (photos 2019/2022)
-    M["b2_floor"] = pavers("b2r", 0.30, 0.15, (0.44, 0.43, 0.41), (0.15, 0.15, 0.14), 0.17, seed=3)
+    M["b2_floor"] = pavers("b2s", 0.30, 0.15, (0.44, 0.43, 0.41), (0.15, 0.15, 0.14), 0.21, seed=3)
     M["wall_tile"] = B.tiled("wall_tile", B.tex_set("wall_tile", T.wall_tiles(N=2048, tile=0.20, grout=0.004, stripe_row=None, tag="_umeda")))
     M["b1_wall"] = panels("b1_wall", 1.2, 0.6, 0.006, (0.80, 0.80, 0.78), (0.25, 0.25, 0.25), 0.28, seed=5)
     M["vault"] = panels("vault_perf", 1.2, 0.6, 0.008, (0.80, 0.80, 0.78), (0.35, 0.35, 0.34), 0.45, perf=0.012, seed=7)
@@ -418,7 +418,8 @@ def materials():
         M[k] = B.printed(k, gfx[k], rough=0.3, coat=0.0, emission=1.2)
     for k in ("ad0", "ad1", "ad2", "adp0", "adp1", "adp2"):
         M[k] = B.printed(k, gfx[k], rough=0.3, coat=0.0, emission=1.6)
-    M["led_vision"] = B.printed("led_vision", gfx["led_vision"], rough=0.4, coat=0.0, emission=1.8)
+    M["led_vision"] = B.printed("led_vision", gfx["led_vision"], rough=0.85, coat=0.0, emission=1.8)
+    M["led_vision"].node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.1
     for k in ("band0", "band1", "band2"):
         M[k] = B.printed(k, gfx[k], rough=0.3, coat=0.0, emission=1.3)
     M["mirror"] = B.plain("mirror", (0.92, 0.92, 0.92), 0.035, metal=1.0)
@@ -426,7 +427,7 @@ def materials():
     M["kiosk_white"] = B.plain("kiosk_white", (0.80, 0.80, 0.79), 0.25, coat=0.4)
     M["louver"] = B.plain("louver", (0.05, 0.05, 0.055), 0.4, metal=0.6)
     M["track_tile"] = glazed("track_tile2", 0.36, 0.27, 0.5, (0.56, 0.53, 0.51), (0.24, 0.23, 0.22))
-    M["b2_floor_band"] = pavers("b2bandr", 0.30, 0.15, (0.30, 0.25, 0.23), (0.12, 0.11, 0.10), 0.18, seed=13)
+    M["b2_floor_band"] = pavers("b2bands", 0.30, 0.15, (0.30, 0.25, 0.23), (0.12, 0.11, 0.10), 0.22, seed=13)
     M["psd_panel"] = B.plain("psd_panel", (0.78, 0.78, 0.77), 0.3, coat=0.3)
     M["door_dark"] = B.plain("door_dark", (0.02, 0.025, 0.03), 0.08, coat=1.0)
     M["esc_clad"] = B.plain("esc_clad", (0.55, 0.54, 0.52), 0.3, metal=0.6)

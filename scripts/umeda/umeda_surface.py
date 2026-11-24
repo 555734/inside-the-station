@@ -141,10 +141,10 @@ def floor(mat, seed=0.0):
     s = _NT(mat)
     # traffic lanes: worn (duller) vs. polished patches at metre scale
     lanes = s.noise(0.45, 3.0, 0.5, seed=seed)
-    s.add_rough(s.ramp(lanes, 0.35, 0.65, -0.10, 0.10))
+    s.add_rough(s.ramp(lanes, 0.3, 0.7, -0.035, 0.05))
     # fine smudges and wet-mop streaks
     streak = s.noise(6.0, 4.0, 0.6, stretch=(1.0, 6.0, 1.0), seed=seed + 1)
-    s.add_rough(s.ramp(streak, 0.45, 0.7, 0.0, 0.08))
+    s.add_rough(s.ramp(streak, 0.45, 0.7, 0.0, 0.05))
     # scuff marks: short dark smears
     sc = s.noise(14.0, 2.0, 0.5, stretch=(4.0, 1.0, 1.0), seed=seed + 2)
     scuff = s.ramp(sc, 0.70, 0.78)
@@ -229,8 +229,7 @@ def apply_all(M):
                 "parapet", "esc_clad", "beige", "column", "portal", "panel_grey"],
         glass_cover: ["ad0", "ad1", "ad2", "adp0", "adp1", "adp2", "band0", "band1", "band2",
                       "name_board_w", "name_board_e", "dep1", "dep2", "clock", "portal_sign",
-                      "exit_sign", "exit_b1", "track1", "track2", "gate_fascia_n", "b1_sign_down",
-                      "led_vision"],
+                      "exit_sign", "exit_b1", "track1", "track2", "gate_fascia_n", "b1_sign_down"],
         ceiling: ["ceil_b2", "ceil"],
         floor_decal: ["queue0", "queue1", "decal_up", "decal_down", "ic_only"],
     }
