@@ -60,8 +60,8 @@ def per_tile(tid, seed, scale=1.0):
     return r[inv].reshape(tid.shape)
 
 
-def wall_tiles(N=4096, size_m=2.4, tile=0.15, grout=0.0055, stripe_row=7, seed=11):
-    path = os.path.join(CACHE, f"wall_{N}.npz")
+def wall_tiles(N=4096, size_m=2.4, tile=0.15, grout=0.0055, stripe_row=7, seed=11, tag=""):
+    path = os.path.join(CACHE, f"wall{tag}_{N}.npz")
     if os.path.exists(path):
         d = np.load(path)
         return {k: d[k].astype(np.float32) for k in d}

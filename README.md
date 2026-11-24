@@ -27,3 +27,54 @@ python3 post.py ../render/corridor.exr ../render/corridor.png --exposure -0.5 --
 ```
 
 GPU のない4コアの CPU で、1920×1080・400サンプルのレンダリングに約40分かかりました（実測2357秒）。
+
+---
+
+# 梅田駅（Osaka Metro 御堂筋線）の再現
+
+Osaka Metro が公開している公式の駅構内図をもとに、梅田駅の B1 コンコースと B2 ホームを3Dで組み立てました。
+
+![platform](render/umeda_platform.jpg)
+![concourse](render/umeda_concourse.jpg)
+![overview](render/umeda_overview.jpg)
+
+## 元にした資料
+
+| 資料 | 使った内容 |
+|---|---|
+| Osaka Metro「避難確保・浸水防止計画 御堂筋線 梅田駅」(2018) 9ページ「駅構内 避難経路図」 | 壁・柱・部屋の平面形、階段 A〜J の位置、改札の列、出入口の位置。上の図が B1 コンコース、下の図が B2 ホーム |
+| Wikipedia「梅田駅 (Osaka Metro)」 | ホーム幅 24.5 m（1番線側 12.0 m、2番線側 12.5 m）、有効長 197 m / 201 m、島式1面2線、2番線南側のアーチ天井（2015年改修）、アーチ天井の LED スクリーン 40 m × 4 m（2019年）、可動式ホーム柵（2021年） |
+| @DIME の記事写真（2018） | 2番線側のアーチ天井、丸い照明、線路側の白タイル壁と広告 |
+
+縮尺は1ピクセルあたり 0.187 m です。地図上のホーム幅をホーム幅の公表値に合わせて決めました。
+この縮尺だとホームの長さは約 204 m / 215 m となり、有効長の公表値とも合います。
+2枚の図は同じ縮尺で横位置が揃っており、上下に 493 px ずれているだけです。
+これは各階段の上端（B1）と下端（B2）の位置で確認しました。
+
+## 地図から自動で取ったもの・手で指定したもの
+
+- **自動**（`scripts/umeda/plan.py`）：赤い避難経路と文字を消した線画から、通れる床を塗りつぶしで求めます。それ以外の壁・柱・部屋をそのまま多角形にして立ち上げています。
+- **手で指定**：階段 A〜J の範囲と昇り方向（地図の矢印から判断）、改札機の列、出入口の階段の向き、B1 の外周（地下街へ続く端を切るため）、アーチ天井の範囲です。
+
+`render/umeda_top.png` は、地図と同じ縮尺・同じ配置で真上から撮った3Dモデルです。
+`scripts/umeda/compare.py` を実行すると、地図の線を重ねた比較画像ができます（地図そのものを含むため、比較画像はリポジトリに入れていません）。
+
+## 推定であるもの（地図にも公表値にもない）
+
+- 高さ：コンコース天井 3.0 m、ホーム床は B1 から −5.8 m、ホームの平天井 3.6 m、アーチの頂部はホーム床から 7.1 m、線路はホーム面から −1.1 m
+- 仕上げ：床石、白タイル、天井材、柱の被覆、照明の配置、コンコースの内装
+- 広告と LED スクリーンの映像は架空のものです。駅名標・番線案内・改札名は実際の案内情報をもとに描いています。
+
+## 再現手順
+
+```bash
+scripts/umeda/fetch_map.sh                  # 公式PDFを取得し、9ページの図を cache/umeda/map.png に保存
+python3 scripts/umeda/plan.py               # 地図を3D用の多角形に変換 → cache/umeda/plan.json
+cd scripts/umeda
+python3 build_umeda.py --view platform  --out ../../render/umeda_platform.exr  --width 1920 --samples 320
+python3 build_umeda.py --view concourse --out ../../render/umeda_concourse.exr --width 1920 --samples 224 --noise 0.015
+python3 build_umeda.py --view overview  --out ../../render/umeda_overview.exr  --width 1920 --samples 128
+python3 build_umeda.py --view top       --out ../../render/umeda_top.exr       --samples 64
+```
+
+`pip install opencv-python-headless` も必要です。
