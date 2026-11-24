@@ -6,3 +6,4 @@ render/*.tmp.png
 __pycache__/
 render/umeda_t[0-9]*
 render/umeda_map_overlay*
+render/umeda_preview.png

@@ -84,6 +84,9 @@ EXIT_ERASE = [(455, 452, 492, 512), (395, 785, 455, 860), (1135, 815, 1210, 885)
               (915, 745, 985, 785), (965, 440, 1000, 512), (995, 478, 1072, 498),
               (1535, 492, 1572, 518), (1580, 470, 1690, 540), (1495, 785, 1595, 812)]
 
+# Inner corridor behind the north gate (barrel-vault ceiling, see the CC0 photo 大阪メトロ梅田駅北改札内通路)
+B1_CORRIDOR = dict(x0=330, x1=1000, y0=663, y1=704)
+
 # Concourse areas that are open voids down to B2 (vault of 2番線 south) - not walkable on B1.
 VAULT = dict(x0=1222, x1=1470, y0_plat=1136, y1_plat=1222)
 
@@ -235,6 +238,11 @@ def build():
     walk_b2 |= plat_open & plat_box
     sol_b2 = plat_box & ~walk_b2
 
+    # B1 flat ceiling everywhere except under the corridor vault
+    ceil_b1 = (walk_b1 | sol_b1).copy()
+    cr = B1_CORRIDOR
+    ceil_b1[cr["y0"]:cr["y1"], cr["x0"]:cr["x1"]] = False
+
     # B2 ceiling: over both platform halves and both track beds, minus stair shafts and the vault
     ceil_b2 = np.zeros_like(walk_b2)
     ceil_b2[1028:1222, 440:1700] = True
@@ -245,6 +253,9 @@ def build():
         "scale": S, "origin_px": [X0, Y0], "plat_dy": PLAT_DY,
         "b1_floor": mask_polys(walk_b1 | sol_b1, "B1"),
         "b1_walk": mask_polys(walk_b1, "B1"),
+        "b1_ceiling": mask_polys(ceil_b1, "B1"),
+        "b1_corridor": {"x0": (B1_CORRIDOR["x0"] - X0) * S, "x1": (B1_CORRIDOR["x1"] - X0) * S,
+                        "y_n": -(B1_CORRIDOR["y0"] - Y0) * S, "y_s": -(B1_CORRIDOR["y1"] - Y0) * S},
         "b1_walls": mask_polys(sol_b1, "B1"),
         "b2_floor": mask_polys(walk_b2 | sol_b2, "B2"),
         "b2_walk": mask_polys(walk_b2, "B2"),
