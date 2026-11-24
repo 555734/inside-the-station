@@ -702,10 +702,10 @@ def build_psd(M):
         for i_, xd in enumerate(doors):                      # queue graphics on the floor (flat-ceiling part)
             if nm == "w" and vx0 - 2 < xd < vx1 + 2:
                 continue
-            for h_, off in ((0, -1.25), (1, 3.25)):
+            for h_, off in ((0, -0.72), (1, 2.72)):          # one each side of the door, never overlapping
                 xq = xd + off
                 yq = y_in + side * (0.25 + 0.65)
-                q = B.image_quad(f"psd_{nm}_q_{i_}{h_}", (xq, yq, Z_B2 + 0.003), (side, 0, 0), (0, side, 0), 1.5, 1.1, M[f"queue{(i_ + h_) % 2}"])
+                q = B.image_quad(f"psd_{nm}_q_{i_}{h_}", (xq, yq, Z_B2 + 0.003), (side, 0, 0), (0, side, 0), 1.0, 1.1, M[f"queue{(i_ + h_) % 2}"])
                 put(q, "B2")
         for i_, xd in enumerate(doors):                      # closed door leaves
             for h_ in (0, 1):
@@ -1168,8 +1168,8 @@ def build_camera(view, args):
         cam.lens = 16
     elif view == "track1":
         # track-1 side under the flat ceiling, looking north (wp_plat1, 2023)
-        ob.location = (76.0, 11.2, Z_B2 + 1.5)
-        ob.rotation_euler = (math.radians(90 + 3), 0, math.radians(97))
+        ob.location = (82.5, 12.6, Z_B2 + 1.5)
+        ob.rotation_euler = (math.radians(90 + 4), 0, math.radians(94))
         cam.lens = 24
     elif view == "concourse":
         # corridor inside the north gate, behind the top of stair H, looking south (2023 photo)
