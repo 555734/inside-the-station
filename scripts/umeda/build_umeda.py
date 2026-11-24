@@ -1182,8 +1182,8 @@ def build_camera(view, args):
         cam.dof.aperture_fstop = 2.4
     elif view == "gate":
         # unpaid side of the north gate, looking south at the gate line (2023 photos)
-        ob.location = (-133.0, 4.0, Z_B1 + 1.55)
-        ob.rotation_euler = (math.radians(90 + 9), 0, math.radians(-112))
+        ob.location = (-132.6, -4.8, Z_B1 + 1.55)
+        ob.rotation_euler = (math.radians(90 + 7), 0, math.radians(-116))
         cam.lens = 24
     elif view == "top":
         # same framing as the map crop x 280..1720, y 390..1250 px (page layout, 1 px = 1 map px)
