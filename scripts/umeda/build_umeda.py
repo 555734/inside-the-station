@@ -1044,14 +1044,14 @@ def build_gates(M):
                 sgn = -1 if unpaid_minus[name] else 1
                 mid = (a + b) / 2
                 fas = B.box(f"fascia_{k}", (0, 0, 0), (0.5, L + 0.6, 0.85), M["portal"], 0.01)
-                fas.location = (mid.x, mid.y, Z_B1 + 2.95)
+                fas.location = (mid.x, mid.y, Z_B1 + H_B1 - 0.43)      # hangs just below the ceiling
                 fas.rotation_euler = (0, 0, ang)
                 put(fas, "B1")
                 if L > 6:
                     face = mid + nrm * (sgn * 0.26)
                     right = t * (1 if sgn < 0 else -1)
                     for off_, img, w_ in ((-0.25, "gate_fascia_n", 6.4),):
-                        q = B.image_quad(f"fascia_sign_{k}", (face.x, face.y, Z_B1 + 2.95), (right.x, right.y, 0), (0, 0, 1), w_, w_ / 9.0, M[img])
+                        q = B.image_quad(f"fascia_sign_{k}", (face.x, face.y, Z_B1 + H_B1 - 0.43), (right.x, right.y, 0), (0, 0, 1), w_, w_ / 9.0, M[img])
                         put(q, "B1")
 
 
