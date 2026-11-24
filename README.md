@@ -26,4 +26,4 @@ python3 build_scene.py --out ../render/corridor.exr --width 1920 --samples 400 -
 python3 post.py ../render/corridor.exr ../render/corridor.png --exposure -0.5 --view "Khronos PBR Neutral" --look None
 ```
 
-GPU のない4コアの CPU で、1920×1080・400サンプルのレンダリングに約45分かかります。
+GPU のない4コアの CPU で、1920×1080・400サンプルのレンダリングに約40分かかりました（実測2357秒）。
