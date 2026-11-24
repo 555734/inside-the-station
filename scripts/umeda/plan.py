@@ -88,7 +88,7 @@ EXIT_ERASE = [(455, 452, 492, 512), (395, 785, 455, 860), (1135, 815, 1210, 885)
 B1_CORRIDOR = dict(x0=330, x1=1000, y0=663, y1=704)
 
 # Concourse areas that are open voids down to B2 (vault of 2番線 south) - not walkable on B1.
-VAULT = dict(x0=1222, x1=1470, y0_plat=1136, y1_plat=1222)
+VAULT = dict(x0=1222, x1=1555, y0_plat=1136, y1_plat=1222)   # B1 void over the arch (stairs E and J descend inside it)
 
 # Outer outline of the B1 drawing (px). Cuts the open ends where the station continues into
 # neighbouring malls / exits; elsewhere it runs just outside the drawn outer walls.

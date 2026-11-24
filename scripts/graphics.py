@@ -320,6 +320,8 @@ def arrow(d, cx, cy, size, fill, direction="up"):
         pts = [(y, -x) for x, y in pts]
     if direction == "right":
         pts = [(-y, x) for x, y in pts]
+    if direction == "down":
+        pts = [(x, -y) for x, y in pts]
     d.polygon([(cx + x * s, cy + y * s) for x, y in pts], fill=fill)
 
 
