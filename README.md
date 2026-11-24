@@ -76,7 +76,7 @@ cd scripts/umeda
 python3 build_umeda.py --view platform  --out ../../render/umeda_platform.exr  --width 1920 --samples 160 --noise 0.02
 python3 build_umeda.py --view concourse --out ../../render/umeda_concourse.exr --width 1920 --samples 128 --noise 0.02
 python3 build_umeda.py --view overview  --out ../../render/umeda_overview.exr  --width 1920 --samples 96 --noise 0.02
-python3 build_umeda.py --view top       --out ../../render/umeda_top.exr       --samples 48
+python3 build_umeda.py --view top       --out ../../render/umeda_top.exr       --width 1440 --samples 48
 # 構図の検討用：低解像度で複数のカメラ位置を一度に描画（x,y,z,上下角,方位角,焦点距離）
 python3 build_umeda.py --view platform --width 400 --samples 8 "--multi=40,-9.8,-4.2,13,-76,15;44,-2.5,-4.2,14,-100,14"
 ```

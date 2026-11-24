@@ -231,7 +231,7 @@ def materials():
     gfx = UG.build_all()
     for k in ("name_board", "track1", "track2", "exit_sign", "gate_nw", "gate_ne", "gate_n", "gate_s", "exit_b1", "plat_sign"):
         M[k] = B.printed(k, gfx[k], rough=0.3, coat=0.0, emission=1.2)
-    for k in ("ad0", "ad1", "ad2"):
+    for k in ("ad0", "ad1", "ad2", "adp0", "adp1", "adp2"):
         M[k] = B.printed(k, gfx[k], rough=0.3, coat=0.0, emission=1.6)
     M["led_vision"] = B.printed("led_vision", gfx["led_vision"], rough=0.4, coat=0.0, emission=4.0)
     return M
@@ -356,9 +356,10 @@ def build_b2(M):
             r = np.array(poly[0])
             (cx0, cy0), (cx1, cy1) = r.min(0), r.max(0)
             for yy, right, nm in ((cy0 - 0.015, (1, 0, 0), "s"), (cy1 + 0.015, (-1, 0, 0), "n")):
-                w = (cx1 - cx0) - 0.1
+                w = min((cx1 - cx0) - 0.1, 1.5)
                 if w > 0.4:
-                    B.image_quad(f"vcad_{i}_{nm}", ((cx0 + cx1) / 2, yy, Z_B2 + 1.65), right, (0, 0, 1), w, 1.7, M[f"ad{i % 3}"])
+                    # portrait artwork (5:6) so the ad keeps its proportions
+                    B.image_quad(f"vcad_{i}_{nm}", ((cx0 + cx1) / 2, yy, Z_B2 + 1.65), right, (0, 0, 1), w, w * 1.2, M[f"adp{i % 3}"])
             for ob in list(bpy.context.scene.collection.objects):
                 if ob.name.startswith("vcad_"):
                     put(ob, c)
@@ -555,7 +556,7 @@ def build_central_wall_face(M):
         # ad lightbox between arches
         xa = x + 4.5
         if xa < vx1 - 2.5:
-            B.image_quad(f"cad_{k}", (xa, y - 0.04, Z_B2 + 1.6), (-1, 0, 0), (0, 0, 1), 2.6, 1.45, M[f"ad{k % 3}"])
+            B.image_quad(f"cad_{k}", (xa, y - 0.04, Z_B2 + 1.6), (1, 0, 0), (0, 0, 1), 2.6, 1.45, M[f"ad{k % 3}"])
             bx(f"cadf_{k}", (xa - 1.36, y - 0.035, Z_B2 + 0.83), (xa + 1.36, y, Z_B2 + 2.37), M["steel"], "B2")
         k += 1
     for ob in list(bpy.context.scene.collection.objects):

@@ -161,6 +161,43 @@ def ad_panel(kind):
     return add_print_texture(im, 10 + kind, 2.0)
 
 
+def ad_portrait(kind):
+    """Upright versions of the three ads for the column lightboxes (5:6)."""
+    W, H = 1000, 1200
+    if kind == 0:
+        im = grad(W, H, (250, 120, 60), (250, 210, 120))
+        d = ImageDraw.Draw(im)
+        d.ellipse([430, 560, 930, 1060], fill=(255, 240, 200))
+        d.rounded_rectangle([580, 600, 780, 1060], 40, fill=(255, 255, 255))
+        d.rounded_rectangle([600, 660, 760, 1040], 30, fill=(250, 150, 60))
+        text(d, (70, 130), "夏の果実、", F("maruK", 110), (255, 255, 255))
+        text(d, (70, 280), "はじける", F("maruK", 110), (255, 255, 255))
+        text(d, (70, 430), "ソーダ。", F("maruK", 110), (255, 255, 255))
+        text(d, (70, 1110), "期間限定", F("sansB", 54), (120, 40, 10))
+    elif kind == 1:
+        im = grad(W, H, (20, 40, 70), (40, 90, 140))
+        d = ImageDraw.Draw(im)
+        for i in range(8):
+            x = 120 + i * 100
+            d.rectangle([x, 1150 - (i * 53) % 300 - 200, x + 78, 1150], fill=(15, 25, 45))
+        text(d, (70, 140), "はじめての", F("sansB", 110), (255, 255, 255))
+        text(d, (70, 290), "英会話、", F("sansB", 110), (255, 255, 255))
+        text(d, (70, 440), "駅前で。", F("sansB", 110), (255, 255, 255))
+        d.rounded_rectangle([70, 620, 930, 740], 20, fill=(255, 205, 0))
+        text(d, (500, 680), "無料体験レッスン受付中", F("sansB", 62), (20, 30, 50), "mm")
+    else:
+        im = Image.new("RGB", (W, H), (245, 243, 238))
+        d = ImageDraw.Draw(im)
+        d.rectangle([0, 620, W, H], fill=(40, 70, 60))
+        for k in range(6):
+            r = 230 - k * 38
+            d.ellipse([500 - r, 910 - r, 500 + r, 910 + r], outline=(200, 220, 200), width=6)
+        text(d, (80, 140), "暮らしに、", F("serifB", 120), (40, 60, 50))
+        text(d, (80, 300), "緑をひとつ。", F("serifB", 120), (40, 60, 50))
+        text(d, (85, 500), "インテリアグリーンフェア 開催中", F("sansM", 46), (80, 90, 80))
+    return add_print_texture(im, 20 + kind, 2.0)
+
+
 def build_all():
     os.makedirs(OUT, exist_ok=True)
     items = {
@@ -176,6 +213,7 @@ def build_all():
         "plat_sign": platform_sign(),
         "led_vision": led_vision(),
         "ad0": ad_panel(0), "ad1": ad_panel(1), "ad2": ad_panel(2),
+        "adp0": ad_portrait(0), "adp1": ad_portrait(1), "adp2": ad_portrait(2),
     }
     paths = {}
     for k, im in items.items():
