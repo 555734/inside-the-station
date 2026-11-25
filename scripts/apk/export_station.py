@@ -1289,6 +1289,7 @@ def main():
     ap.add_argument("--no-cull", action="store_true", help="(default; kept for older command lines)")
     ap.add_argument("--layout-only", action="store_true", help="write the layouts (uv/) and stop")
     ap.add_argument("--reverse", action="store_true", help="bake the chunks in reverse order")
+    ap.add_argument("--no-bake", action="store_true", help="write the station data, bake nothing")
     ap.add_argument("--check-void", action="store_true", help="report how much empty space the walker can still see")
     a = ap.parse_args()
     out = os.path.abspath(a.out)
@@ -1414,6 +1415,8 @@ def main():
     if a.zip:
         shutil.make_archive(a.zip[:-4] if a.zip.endswith(".zip") else a.zip, "zip", out)
         log("packed", a.zip)
+    if a.no_bake:
+        return
     col.hide_render = True                     # the walk ramps must not shade anything
     skip = set(x for x in a.skip.split(",") if x)
     prog = bake(chunks, sizes, a.samples, raw_dir, a.deadline, skip, reverse=a.reverse)
