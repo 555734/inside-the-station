@@ -666,6 +666,62 @@ def find_openings(objs, wg):
             below = tree.ray_cast(Vector(edge), Vector((0, 0, -1)), 12.0)
             depth = min((edge[2] - below[0].z) if below[0] is not None else 6.0, 6.0)
             drops.append([ix, iy, dx, dy, round(z - depth - 0.05, 3), round(z + 0.02, 3), "drop"])
+    # the concourse ceiling continues over floor openings (a stairwell down to the platform, the top of
+    # the platform vault): where a ray from an eye point (closures so far included) escapes upwards
+    # through the concourse ceiling height within 6 m of the concourse floor, and nothing is overhead
+    b1 = {(ix, iy) for ix, iy, z in wg["nodes"] if abs(z - BU.Z_B1) < 0.3}
+    up_stairs = {(ix, iy) for ix, iy, z in wg["nodes"] if z > BU.Z_B1 + 0.3}
+    zc = BU.Z_B1 + BU.H_B1
+    ceil2 = []
+    if b1:
+        R = 12
+        xs = [c[0] for c in b1]
+        ys = [c[1] for c in b1]
+        occ = np.zeros((max(xs) - min(xs) + 2 * R + 1, max(ys) - min(ys) + 2 * R + 1), bool)
+        ox, oy = min(xs) - R, min(ys) - R
+        for ix, iy in b1:
+            occ[ix - ox, iy - oy] = True
+        from scipy.ndimage import binary_dilation
+        near = binary_dilation(occ, iterations=R)
+        spec0 = {"lo": lo, "grid": g, "ceil": ceil, "caps": caps + [[0, 0, 0, 0, 0, 0, "x"]][:0], "bulk": []}
+        tmp = []
+        for mes in closure_meshes(dict(spec0, caps=[list(c) for c in caps]))[0].values():
+            for me in mes:
+                o = bpy.data.objects.new("tmp_close", me)
+                tmp.append(o)
+        tree2 = _bvh(list(objs) + tmp)
+        k = np.arange(256) + 0.5
+        zz = 1 - 2 * k / 256
+        phi = k * math.pi * (3 - math.sqrt(5))
+        rr = np.sqrt(1 - zz * zz)
+        dirs = [Vector(d) for d in np.stack([rr * np.cos(phi), rr * np.sin(phi), zz], 1).tolist() if d[2] > 0.05]
+        cand = set()
+        for e in walk_eyes(wg):
+            if e[2] >= zc:
+                continue
+            for d in dirs:
+                if _front_hit(tree2, e, d, 400.0) is None:
+                    t = (zc - e[2]) / d.z
+                    cx, cy = int(round((e[0] + d.x * t - lo[0]) / g)), int(round((e[1] + d.y * t - lo[1]) / g))
+                    for ddx in (-1, 0, 1):
+                        for ddy in (-1, 0, 1):
+                            cand.add((cx + ddx, cy + ddy))
+        for o in tmp:
+            bpy.data.objects.remove(o)
+        have = {(c[0], c[1]) for c in ceil}
+        down = Vector((0, 0, -1))
+        added = 0                      # kept apart from `ceil`: own corner heights (see closure_meshes)
+        for ix, iy in sorted(cand):
+            i, j = ix - ox, iy - oy
+            if not (0 <= i < near.shape[0] and 0 <= j < near.shape[1]) or not near[i, j] or occ[i, j]:
+                continue
+            if (ix, iy) in have or (ix, iy) in up_stairs:
+                continue
+            o = (lo[0] + ix * g, lo[1] + iy * g, zc - 0.4)          # under the ceiling, over a vault top
+            if _front_hit(tree, o, up, 8.0) is None and _front_hit(tree, o, down, 12.0) is not None:
+                ceil2.append([ix, iy, round(zc, 3)])
+                added += 1
+        log(f"   {added} ceiling cells over floor openings (from {len(cand)} cells escaping rays pass)")
     # a new ceiling higher than the existing one next to it (stairs up to the street rise past the
     # concourse ceiling): a bulkhead from the lower ceiling up, as in a real stairwell
     bulk = []
@@ -678,7 +734,7 @@ def find_openings(objs, wg):
     log(f"openings: {len(ceil)} ceiling cells ({len(ceil) * g * g:.0f} m2), {len(caps)} end-wall cells, "
         f"{len(bulk)} bulkhead cells")
     log(f"   {len(drops)} hanging-wall cells under floor edges")
-    return {"lo": lo, "grid": g, "ceil": ceil, "caps": caps + drops, "bulk": bulk}
+    return {"lo": lo, "grid": g, "ceil": ceil, "ceil2": ceil2, "caps": caps + drops, "bulk": bulk}
 
 
 def void_report(objs, wg, rays=256):
@@ -717,13 +773,19 @@ def closure_meshes(spec):
     """Meshes for find_openings' result, by level: ceilings face down, end walls face the floor
     they close. Ceiling corners take the highest of the cells around them (no gaps over stairs)."""
     lo, g = spec["lo"], spec["grid"]
-    heights = {(ix, iy): h for ix, iy, h in spec["ceil"]}
-    corner = {}
-    for (ix, iy), h in heights.items():
-        for cx in (0, 1):
-            for cy in (0, 1):
-                k = (ix + cx, iy + cy)
-                corner[k] = max(corner.get(k, -1e9), h)
+
+    def corners(cells):
+        heights = {(ix, iy): h for ix, iy, h in cells}
+        corner = {}
+        for (ix, iy), h in heights.items():
+            for cx in (0, 1):
+                for cy in (0, 1):
+                    k = (ix + cx, iy + cy)
+                    corner[k] = max(corner.get(k, -1e9), h)
+        return heights, corner
+
+    heights, corner = corners(spec["ceil"])
+    heights2, corner2 = corners(spec.get("ceil2", []))     # ceilings over openings, added later
 
     def level_of_z(z):
         if z < BU.Z_B2 + 0.5:
@@ -739,12 +801,13 @@ def closure_meshes(spec):
         p[1].append((k, k + 1, k + 2, k + 3))
         p[2].extend(uvs)
 
-    for (ix, iy), h in heights.items():
-        xs = (lo[0] + (ix - 0.5) * g, lo[0] + (ix + 0.5) * g)
-        ys = (lo[1] + (iy - 0.5) * g, lo[1] + (iy + 0.5) * g)
-        q = [(xs[0], ys[0], corner[(ix, iy)]), (xs[0], ys[1], corner[(ix, iy + 1)]),
-             (xs[1], ys[1], corner[(ix + 1, iy + 1)]), (xs[1], ys[0], corner[(ix + 1, iy)])]   # faces down
-        add(level_of_z(h), "ceil", q, [(v[0] / 1.2, v[1] / 1.2) for v in q])
+    for hs, cn in ((heights, corner), (heights2, corner2)):
+        for (ix, iy), h in hs.items():
+            xs = (lo[0] + (ix - 0.5) * g, lo[0] + (ix + 0.5) * g)
+            ys = (lo[1] + (iy - 0.5) * g, lo[1] + (iy + 0.5) * g)
+            q = [(xs[0], ys[0], cn[(ix, iy)]), (xs[0], ys[1], cn[(ix, iy + 1)]),
+                 (xs[1], ys[1], cn[(ix + 1, iy + 1)]), (xs[1], ys[0], cn[(ix + 1, iy)])]   # faces down
+            add(level_of_z(h), "ceil", q, [(v[0] / 1.2, v[1] / 1.2) for v in q])
     walls_spec = [list(c) for c in spec["caps"]]
     for ix, iy, dx, dy, z0 in spec.get("bulk", []):
         ex = [(ix + (dx > 0) + (dx == 0) * c, iy + (dy > 0) + (dy == 0) * c) for c in (0, 1)]   # edge corners
@@ -969,14 +1032,14 @@ def cull_hidden(objs, col, rays=16, dry=False):
 
 # ------------------------------------------------------------------ lightmap UVs kept between runs
 
-def loop_keys(me):
+def loop_keys(me, scale=1e4):
     """A 64-bit key per face corner that does not depend on element order (Blender's mesh cuts
     do not keep the same order from run to run): the corner's vertex position, the next and
     previous corner of its face (so a reversed face differs) and the material, hashed."""
     nv, nl, npoly = len(me.vertices), len(me.loops), len(me.polygons)
     co = np.empty(nv * 3, np.float32)
     me.vertices.foreach_get("co", co)
-    q = np.round(co.reshape(-1, 3).astype(np.float64) * 1e4).astype(np.int64)
+    q = np.round(co.reshape(-1, 3).astype(np.float64) * scale).astype(np.int64)
     lv = np.empty(nl, np.int32)
     me.loops.foreach_get("vertex_index", lv)
     ls = np.empty(npoly, np.int32)
@@ -1000,35 +1063,53 @@ def loop_keys(me):
 
 
 def geom_signature(me):
-    co = np.empty(len(me.vertices) * 3, np.float32)
-    me.vertices.foreach_get("co", co)
-    return [len(me.vertices), len(me.loops), len(me.polygons), round(float(np.abs(co).sum()), 1),
+    """Counts and a checksum of the corner keys (independent of element order)."""
+    return [len(me.vertices), len(me.loops), len(me.polygons), 0.0,
             zlib.crc32(np.sort(loop_keys(me)).tobytes())]
 
 
 def save_uv(ob, d):
     uv = np.empty(len(ob.data.loops) * 2, np.float32)
     ob.data.uv_layers["Lightmap"].data.foreach_get("uv", uv)
-    np.savez(os.path.join(d, ob.name + ".npz"), uv=uv.reshape(-1, 2), key=loop_keys(ob.data))
+    np.savez(os.path.join(d, ob.name + ".npz"), uv=uv.reshape(-1, 2), key=loop_keys(ob.data),
+             key2=loop_keys(ob.data, 1e2))
     return geom_signature(ob.data)
 
 
 def load_uv(ob, d, sig):
     """Reuse the lightmap layout of an earlier run, so its baked lightmaps stay valid. Corners are
-    matched by loop_keys, not by index."""
+    matched by loop_keys, not by index; the few whose positions differ in the last digits between
+    runs (cuts and offsets are not bit-exact) are matched again at 1 cm. Returns False when the
+    chunk is not the same (counts differ or corners have no match)."""
     me = ob.data
-    if geom_signature(me) != sig:
-        raise RuntimeError(f"{ob.name}: geometry differs from the earlier run, its lightmaps would not fit")
-    z = np.load(os.path.join(d, ob.name + ".npz"))
+    if sig is None or list(sig[:3]) != [len(me.vertices), len(me.loops), len(me.polygons)]:
+        return False
+    path = os.path.join(d, ob.name + ".npz")
+    if not os.path.exists(path):
+        return False
+    z = np.load(path)
     order = np.argsort(z["key"], kind="stable")
-    sk = z["key"][order]
+    sk, suv = z["key"][order], z["uv"][order]
     cur = loop_keys(me)
     i = np.clip(np.searchsorted(sk, cur), 0, len(sk) - 1)
-    if not np.array_equal(sk[i], cur):
-        raise RuntimeError(f"{ob.name}: {int((sk[i] != cur).sum())} face corners not found in the earlier layout")
+    ok = sk[i] == cur
+    uv = np.zeros((len(cur), 2), np.float32)
+    uv[ok] = suv[i[ok]]
+    if not ok.all():
+        if "key2" not in z.files or (~ok).mean() > 0.01:
+            return False
+        o2 = np.argsort(z["key2"], kind="stable")
+        s2, uv2 = z["key2"][o2], z["uv"][o2]
+        c2 = loop_keys(me, 1e2)[~ok]
+        j = np.clip(np.searchsorted(s2, c2), 0, len(s2) - 1)
+        if not (s2[j] == c2).all():
+            return False
+        uv[~ok] = uv2[j]
+        log(f"{ob.name}: {int((~ok).sum())} corners matched at 1 cm")
     lm = me.uv_layers.new(name="Lightmap")
-    lm.data.foreach_set("uv", z["uv"][order][i].ravel())
+    lm.data.foreach_set("uv", uv.ravel())
     me.uv_layers.active = lm
+    return True
 
 
 # ------------------------------------------------------------------ bake
@@ -1343,13 +1424,22 @@ def main():
         grid += split_into_chunks(ob, level)
     bpy.data.batch_remove([me for me in bpy.data.meshes if me.users == 0])
     sizes, chunks = {}, []
+    changed = []
     if old:
-        splits = old["splits"]
+        # the earlier layout, chunk by chunk; a chunk whose geometry changed since (e.g. a closure
+        # added in it) gets a new layout of its own and needs baking again
+        splits = dict(old["splits"])
         for ob in grid:
-            chunks += apply_splits(ob, splits)
-        for ob in chunks:
-            sizes[ob.name] = old["sizes"][ob.name]
-            load_uv(ob, a.uv_from, old["geom"][ob.name])
+            for c in apply_splits(ob, splits):
+                if load_uv(c, a.uv_from, old["geom"].get(c.name)):
+                    chunks.append(c)
+                    sizes[c.name] = old["sizes"][c.name]
+                    continue
+                for c2, s in layout_chunk(c, a.texel, a.max_lm, splits):
+                    chunks.append(c2)
+                    sizes[c2.name] = s
+                    changed.append(c2.name)
+        log(f"layouts reused, {len(changed)} chunks laid out anew: {changed}")
     else:
         splits = {}
         for ob in grid:
@@ -1366,7 +1456,7 @@ def main():
         cdf = np.cumsum(ar[m][o]) / max(ar[m].sum(), 1e-9)
         q[ob.name] = [round(float(tex[m][o][min(np.searchsorted(cdf, v), len(o) - 1)]) * 100, 2)
                       for v in (0.5, 0.95, 0.99)] if m.any() else [0, 0, 0]
-    index = {"sizes": sizes, "geom": sigs, "splits": splits, "orient": orient, "close": close,
+    index = {"sizes": sizes, "geom": sigs, "splits": splits, "orient": orient, "close": close, "changed": changed,
              "texel_cm_p50_p95_p99": q}
     index["layout_id"] = hashlib.sha1(json.dumps([sizes, sigs], sort_keys=True).encode()).hexdigest()[:12]
     json.dump(index, open(os.path.join(out, "uv", "index.json"), "w"))
