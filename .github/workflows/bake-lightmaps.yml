@@ -1,7 +1,9 @@
 # Bakes the walkthrough app's lightmaps (scripts/apk/export_station.py) on up to 20 runners at once.
 # Started by a push that changes .github/bake/request.json: the layout every runner must rebuild
 # (its id) and the chunks each runner bakes (one runner per entry of "parts"). With "prep_run",
-# the runners take the prepared layout of that earlier run instead of preparing it again.
+# the runners take the prepared layout of that earlier run instead of preparing it again;
+# "close_extra" adds closure geometry made since, and "expect_layout" is the layout id the
+# runners must arrive at before they bake.
 # Raw lightmaps come back as artifacts (raw-<part>); scripts/apk/finish_station.py denoises them.
 # The official map is fetched on each runner and never stored in an artifact.
 name: bake-lightmaps
@@ -102,13 +104,40 @@ jobs:
           print("layout", got, "expected", want)
           sys.exit(0 if got == want else 1)
           PY
+          # closure added since that layout was prepared (chunks it touches are laid out again,
+          # the same way on every machine; expect_layout below confirms it)
+          python - <<'PY'
+          import json
+          r = json.load(open(".github/bake/request.json"))
+          if "close_extra" in r:
+              p = "/tmp/layout/uv/index.json"
+              i = json.load(open(p))
+              i["close"].update(r["close_extra"])
+              json.dump(i, open(p, "w"))
+              print("closure extended:", {k: len(v) for k, v in r["close_extra"].items()})
+          PY
           bash scripts/umeda/fetch_map.sh
           python scripts/umeda/plan.py
       - name: bake this part
         run: |
           SKIP=$(python -c "import json,sys; r=json.load(open('.github/bake/request.json')); i=json.load(open('/tmp/layout/uv/index.json')); mine=set(r['parts'][int(sys.argv[1])-1]); print(','.join(sorted(set(i['sizes'])-mine)))" ${{ matrix.part }})
+          WANT=$(python -c "import json; print(json.load(open('.github/bake/request.json')).get('expect_layout', ''))")
           python scripts/apk/export_station.py /tmp/station $EXPORT_ARGS --uv-from /tmp/layout/uv \
-            --raw-dir /tmp/raw --skip "$SKIP" --reverse --deadline $(( $(date +%s) + 18600 ))
+            --raw-dir /tmp/raw --skip "$SKIP" --reverse --deadline $(( $(date +%s) + 18600 )) > /tmp/export.log 2>&1 &
+          PID=$!
+          if [ -n "$WANT" ]; then
+            until grep -q " layout [0-9a-f]\{12\}" /tmp/export.log || ! kill -0 $PID 2>/dev/null; do sleep 5; done
+            grep " layout [0-9a-f]\{12\}" /tmp/export.log | tail -1
+            if ! grep -q " layout $WANT" /tmp/export.log; then echo "layout is not $WANT"; kill $PID; cat /tmp/export.log | tail -40; exit 1; fi
+          fi
+          st=0; wait $PID || st=$?
+          grep -v "^Info:" /tmp/export.log | tail -30
+          mkdir -p /tmp/raw/uv
+          for c in $(python -c "import json,sys; print(' '.join(json.load(open('.github/bake/request.json'))['parts'][int(sys.argv[1])-1]))" ${{ matrix.part }}); do
+            cp /tmp/station/uv/$c.npz /tmp/raw/uv/ 2>/dev/null || true
+          done
+          cp /tmp/station/uv/index.json /tmp/raw/uv/ 2>/dev/null || true
+          exit $st
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: "raw-${{ matrix.part }}", path: /tmp/raw/, retention-days: 3, compression-level: 0, if-no-files-found: ignore}
