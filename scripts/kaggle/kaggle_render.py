@@ -88,6 +88,7 @@ VIEWS = __VIEWS__
 ARGS = __ARGS__
 BUDGET = __BUDGET__
 SKIP = __SKIP__
+LAYOUT = __LAYOUT__
 t0 = time.time()
 def run(cmd, **kw):
     print("+", cmd, flush=True)
@@ -99,6 +100,12 @@ if tars:
     tarfile.open(tars[0]).extractall("/tmp/w")
 else:
     run(f"cp -r {os.path.dirname(os.path.dirname(os.path.dirname(src[0])))} /tmp/w/proj")
+import json
+if LAYOUT:
+    ip = "/tmp/w/proj/cache/apk_uv/index.json"
+    got = json.load(open(ip)).get("layout_id") if os.path.exists(ip) else None
+    if got != LAYOUT:
+        sys.exit(f"dataset holds layout {got}, expected {LAYOUT}: the new dataset version was not ready")
 # the scripts travel with the notebook (always current); the dataset only carries fonts/textures
 import base64, io
 tarfile.open(fileobj=io.BytesIO(base64.b64decode(SCRIPTS_B64))).extractall("/tmp/w/proj")
@@ -191,6 +198,7 @@ def run(views, args):
         print(f"bake budget {budget:.0f}s, {len(skip)} chunks already baked", flush=True)
     code = KERNEL_CODE.replace("__VIEWS__", repr(views)).replace("__ARGS__", repr(extra))
     code = code.replace("__BUDGET__", repr(budget)).replace("__SKIP__", repr(skip))
+    code = code.replace("__LAYOUT__", repr(layout_id(os.path.join(WORK, "apk_uv")) if views == ["__export__"] else ""))
     code = "SCRIPTS_B64 = " + repr(b64) + "\n" + code
     open(os.path.join(d, "run.py"), "w").write(code)
     meta = {"id": f"{user()}/{KERNEL}", "title": KERNEL, "code_file": "run.py", "language": "python",
