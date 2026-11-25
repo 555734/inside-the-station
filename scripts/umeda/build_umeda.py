@@ -1330,6 +1330,25 @@ def build_details(M):
     print("details", k)
 
 
+def enable_gpu():
+    """Render on every CUDA/OptiX GPU present (Kaggle T4 x2, etc.); used when UMEDA_GPU is set."""
+    prefs = bpy.context.preferences.addons["cycles"].preferences
+    for kind in ("OPTIX", "CUDA"):
+        try:
+            prefs.compute_device_type = kind
+        except TypeError:
+            continue
+        prefs.get_devices()
+        gpus = [d for d in prefs.devices if d.type == kind]
+        if gpus:
+            for d in prefs.devices:
+                d.use = d.type == kind
+            bpy.context.scene.cycles.device = "GPU"
+            print("GPU", kind, [d.name for d in gpus], flush=True)
+            return
+    print("GPU requested but none found; rendering on CPU", flush=True)
+
+
 def build_camera(view, args):
     cam = bpy.data.cameras.new("cam")
     cam.sensor_width = 36
@@ -1454,6 +1473,8 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     ns = argparse.Namespace(out=args.out, width=args.width, samples=args.samples, noise=args.noise)
     B.render_settings(ns)
+    if os.environ.get("UMEDA_GPU"):
+        enable_gpu()
     bpy.context.scene.cycles.blur_glossy = 0.05     # keep reflections crisp
     bpy.context.scene.cycles.sample_clamp_indirect = 12.0
     M = materials()
