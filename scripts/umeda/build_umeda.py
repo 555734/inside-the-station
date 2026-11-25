@@ -1160,9 +1160,10 @@ def guide_lines(M):
     c = "B2"
     yw = PLAN["edges_y"]["lo"]
     xb = st["x_bot"] - 0.95
+    # where lines cross, the later block sits 0.5 mm higher so the tops never coincide
     bx("gl_j_long", (40.0, yw + 2.05, Z_B2), (xb, yw + 2.35, Z_B2 + 0.006), M["tactile_bar"], c)
-    bx("gl_j_cross", (xb - 5.3, yw + 1.0, Z_B2), (xb - 5.0, PLAN["vault"]["y_east"] - 0.6, Z_B2 + 0.006), M["tactile"], c)
-    bx("gl_j_foot", (xb - 0.3, yw + 2.05, Z_B2), (xb, st["y1"] + 0.4, Z_B2 + 0.006), M["tactile"], c)
+    bx("gl_j_cross", (xb - 5.3, yw + 1.0, Z_B2), (xb - 5.0, PLAN["vault"]["y_east"] - 0.6, Z_B2 + 0.0065), M["tactile"], c)
+    bx("gl_j_foot", (xb - 0.3, yw + 2.05, Z_B2), (xb, st["y1"] + 0.4, Z_B2 + 0.007), M["tactile"], c)
 
 
 def build_gates(M):
