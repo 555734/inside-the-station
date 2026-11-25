@@ -110,7 +110,7 @@ if LAYOUT:
 # the scripts travel with the notebook (always current); the dataset only carries fonts/textures
 import base64, io
 tarfile.open(fileobj=io.BytesIO(base64.b64decode(SCRIPTS_B64))).extractall("/tmp/w/proj")
-run("nvidia-smi --query-gpu=name,memory.total --format=csv")
+subprocess.run("nvidia-smi --query-gpu=name,memory.total --format=csv; nproc; free -g | head -2", shell=True)
 run("pip -q install uv")
 run("uv venv -q /tmp/venv -p 3.13")
 run("uv pip install -q --python /tmp/venv/bin/python bpy==5.3.0 numpy scipy pillow opencv-python-headless")
@@ -131,7 +131,7 @@ if VIEWS == ["__export__"]:
             resume += " --skip " + ",".join(SKIP)
     # raw lightmaps go straight to /kaggle/working as each batch finishes; no batch starts that
     # could not end before the GPU quota left this week runs out
-    dev = "--gpu" if DEVICE == "gpu" else "--reverse"      # TPU machine: bake on its CPUs, from the other end
+    dev = {"gpu": "--gpu", "tpu": "--reverse", "cpu": ""}[DEVICE]   # TPU machine: its CPUs, from the other end
     run(f"/tmp/venv/bin/python export_station.py /tmp/station {ARGS} {dev} --raw-dir /kaggle/working "
         f"--zip /kaggle/working/station.zip --deadline {t0 + BUDGET:.0f} {resume}",
         cwd="/tmp/w/proj/scripts/apk", env=env)
@@ -163,7 +163,8 @@ def gpu_quota_left(kind="gpu"):
 
 
 def run(views, args):
-    d = os.path.join(WORK, "kernel")
+    tag = ("-tpu" if args.tpu else "") + (f"-cpu{args.cpu_slot}" if args.cpu_slot is not None else "")
+    d = os.path.join(WORK, "kernel" + tag)          # one folder per kernel: several can run at once
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d)
     if views == ["__export__"]:
@@ -182,8 +183,11 @@ def run(views, args):
     b64 = base64.b64encode(buf.getvalue()).decode()
     budget, skip = 0, []
     if views == ["__export__"]:
-        budget = gpu_quota_left("tpu" if args.tpu else "gpu") - args.margin
-        budget = min(budget, 9 * 3600 - args.margin)          # one session runs at most 9 hours
+        if args.cpu_slot is not None:                         # no accelerator: no weekly quota, 12 h sessions
+            budget = 12 * 3600 - 2400
+        else:
+            budget = gpu_quota_left("tpu" if args.tpu else "gpu") - args.margin
+            budget = min(budget, 9 * 3600 - args.margin)      # one session runs at most 9 hours
         if budget < 1800:
             sys.exit(f"only {budget + args.margin:.0f}s of GPU quota left this week")
         raw = os.path.join(WORK, "lm_raw")
@@ -194,23 +198,28 @@ def run(views, args):
                 sys.exit("cache/kaggle/apk_uv changed since the last upload: run the bundle command first")
         if os.path.isdir(raw):
             skip = sorted(f[:-4] for f in os.listdir(raw) if f.endswith(".npz"))
-        if skip:
+        if args.chunks:                                       # this session bakes only these
+            mine = set(args.chunks.split(","))
+            skip = sorted(set(skip) | (set(json.load(open(os.path.join(WORK, "apk_uv", "index.json")))["sizes"]) - mine))
+        if skip and not args.chunks:
             lp = os.path.join(raw, "LAYOUT")
             if not lid or not os.path.exists(lp) or open(lp).read().strip() != lid:
                 sys.exit("cache/kaggle/lm_raw holds lightmaps of another layout: move them away first")
         print(f"bake budget {budget:.0f}s, {len(skip)} chunks already baked", flush=True)
     code = KERNEL_CODE.replace("__VIEWS__", repr(views)).replace("__ARGS__", repr(extra))
     code = code.replace("__BUDGET__", repr(budget)).replace("__SKIP__", repr(skip))
-    code = code.replace("__DEVICE__", repr("tpu" if args.tpu else "gpu"))
+    code = code.replace("__DEVICE__", repr("cpu" if args.cpu_slot is not None else ("tpu" if args.tpu else "gpu")))
     code = code.replace("__LAYOUT__", repr(layout_id(os.path.join(WORK, "apk_uv")) if views == ["__export__"] else ""))
     code = "SCRIPTS_B64 = " + repr(b64) + "\n" + code
     open(os.path.join(d, "run.py"), "w").write(code)
-    kernel = KERNEL + ("-tpu" if args.tpu else "")
+    kernel = KERNEL + tag
+    accel = "cpu" if args.cpu_slot is not None else ("tpu" if args.tpu else "gpu")
     meta = {"id": f"{user()}/{kernel}", "title": kernel, "code_file": "run.py", "language": "python",
             "kernel_type": "script", "is_private": "true", "enable_internet": "true",
-            "enable_gpu": "false" if args.tpu else "true", "enable_tpu": "true" if args.tpu else "false",
-            "machine_shape": "TpuV5E8" if args.tpu else "NvidiaTeslaT4", "dataset_sources": [f"{user()}/{DATASET}"],
-            "competition_sources": [], "kernel_sources": []}
+            "enable_gpu": "true" if accel == "gpu" else "false", "enable_tpu": "true" if accel == "tpu" else "false",
+            "dataset_sources": [f"{user()}/{DATASET}"], "competition_sources": [], "kernel_sources": []}
+    if accel != "cpu":
+        meta["machine_shape"] = "TpuV5E8" if accel == "tpu" else "NvidiaTeslaT4"
     json.dump(meta, open(os.path.join(d, "kernel-metadata.json"), "w"))
     sh(["kaggle", "kernels", "push", "-p", d])
     ref = f"{user()}/{kernel}"
@@ -223,14 +232,14 @@ def run(views, args):
         low = st.lower()
         if "complete" in low or "error" in low or "cancel" in low:
             break
-    out = os.path.join(WORK, "output_tpu" if args.tpu else "output")
+    out = os.path.join(WORK, "output" + ("" if accel == "gpu" else "_" + kernel.split("-")[-1]))
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     sh(["kaggle", "kernels", "output", ref, "-p", out])
     got = []
     if views == ["__export__"]:
         zp = os.path.join(out, "station.zip")
-        if os.path.exists(zp):
+        if os.path.exists(zp) and accel == "gpu":          # one copy of the station data is enough
             dst = os.path.join(ROOT, "app", "station")
             shutil.rmtree(dst, ignore_errors=True)
             shutil.unpack_archive(zp, dst)
@@ -275,6 +284,8 @@ def main():
     ap.add_argument("--max-lm", type=int, default=2048)
     ap.add_argument("--max-tex", type=int, default=1024)
     ap.add_argument("--margin", type=float, default=900, help="GPU seconds kept in reserve (export runs)")
+    ap.add_argument("--cpu-slot", type=int, help="export runs: a CPU-only session (no quota), kernel name suffix")
+    ap.add_argument("--chunks", help="export runs: bake only these chunks (comma separated)")
     ap.add_argument("--tpu", action="store_true",
                     help="export runs: use a TPU machine's CPUs (separate weekly quota), baking from the last chunk")
     ap.add_argument("--no-cull", action="store_true", help="export runs: keep faces that can never be seen")
