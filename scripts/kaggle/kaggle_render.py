@@ -149,6 +149,8 @@ def run(views, args):
     os.makedirs(d)
     if views == ["__export__"]:
         extra = f"--samples {args.samples} --texel {args.texel} --max-lm {args.max_lm} --max-tex {args.max_tex}"
+        if args.no_cull:
+            extra += " --no-cull"
     else:
         extra = f"--width {args.width} --samples {args.samples} --noise {args.noise}"
     import base64
@@ -239,6 +241,7 @@ def main():
     ap.add_argument("--max-lm", type=int, default=2048)
     ap.add_argument("--max-tex", type=int, default=1024)
     ap.add_argument("--margin", type=float, default=900, help="GPU seconds kept in reserve (export runs)")
+    ap.add_argument("--no-cull", action="store_true", help="export runs: keep faces that can never be seen")
     a = ap.parse_args()
     if a.cmd == "bundle":
         bundle()
