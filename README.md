@@ -117,3 +117,26 @@ cd scripts && python3 post.py ../render/umeda_arch.exr ../render/umeda_arch.png 
 Kaggle の無料 GPU（Tesla T4 ×2、OptiX）では、160サンプルの1枚が84秒で描けました（上の CPU の約28倍）。
 512サンプルの5枚をまとめて描くと、準備を含めて約24分です。
 公式の構内図と参考写真はアップロードしません。描画に使うのは、地図から作った `plan.json` だけです。
+
+---
+
+# 梅田駅を歩き回れる Android アプリ（APK）
+
+上の梅田駅の3Dモデルを、スマートフォンで歩き回れるようにしたものです（`app/`、Godot 4.4）。
+
+- **光**：Cycles で光の当たり方（直接光と間接光、すべての照明と光る看板・LED）を計算し、テクスチャ（ライトマップ）に焼き込んでいます。スマートフォンはそれを表示するだけなので、静止画に近い明るさの分布になります。
+- **反射**：床や金属の映り込みは、駅の中に約70個置いた反射プローブで表示します。静止画のパストレーシングほど正確な反射ではありません。
+- **操作**：画面の左側をドラッグすると移動、右側をドラッグすると見回します。右上のボタンで5か所（2番線アーチ、1番線、J階段、北改札内通路、北改札）に移動でき、「歩く/走る」を切り替えられます。
+- **歩ける範囲**：B1 コンコースと B2 ホームの全体です。階段とエスカレーターは上り下りできます。壁・ホーム柵・改札機は通り抜けられません。地上への出口階段は途中で行き止まりです。
+
+## 作り方
+
+```bash
+# 1. 駅を書き出す（20 m ごとに分割、ライトマップ用 UV、Cycles で焼き込み）。Kaggle の GPU で実行
+python3 scripts/kaggle/kaggle_render.py run __export__ --samples 1024 --texel 0.03 --max-lm 2048
+#    （ローカルなら: python3 scripts/apk/export_station.py app/station --samples 1024）
+# 2. APK を作る（Godot 4.4 と Android の export templates、Android SDK、JDK が必要）
+cd app && godot --headless --import && godot --headless --export-debug "Android" ../build/umeda_walkthrough.apk
+```
+
+`app/station/`（書き出したデータ）と APK はサイズが大きいため、リポジトリには入れていません。
