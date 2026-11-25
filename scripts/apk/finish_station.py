@@ -1,11 +1,12 @@
 """Turn the raw baked lightmaps into the app's lightmap PNGs (runs locally, needs no GPU).
 
-  python3 finish_station.py app/station cache/kaggle/lm_raw [more raw dirs...] [--no-denoise]
+  python3 finish_station.py app/station cache/kaggle/lm_raw [more raw dirs...] [--no-denoise] [--resume]
 
 For every chunk listed in OUT/app.json the raw float16 irradiance (RAW/<chunk>.npz, written by
 export_station.py) is denoised with Open Image Denoise and stored as OUT/lightmaps/<chunk>.png
 (sqrt(E / (E + 1)) in 8 bits, the encoding the app decodes). Stops with a list of the chunks
-that have no raw lightmap yet.
+that have no raw lightmap yet. With --resume, chunks whose PNG is already newer than their raw
+lightmap are left as they are (so it can be run while bakes are still coming in).
 """
 import argparse
 import json
@@ -31,6 +32,7 @@ def main():
     ap.add_argument("out")
     ap.add_argument("raw", nargs="+")
     ap.add_argument("--no-denoise", action="store_true")
+    ap.add_argument("--resume", action="store_true")
     a = ap.parse_args()
     meta_p = os.path.join(a.out, "app.json")
     meta = json.load(open(meta_p))
@@ -41,11 +43,15 @@ def main():
         if src is None:
             missing.append(name)
             continue
+        dst = os.path.join(a.out, info["file"])
+        if a.resume and "p99" in info and os.path.exists(dst) and os.path.getmtime(dst) > os.path.getmtime(src):
+            continue
         e = np.load(src)["lm"].astype(np.float32)
         if not a.no_denoise:
             e = denoise(e)
-        info["p99"] = save_lightmap(e, os.path.join(a.out, info["file"]))
+        info["p99"] = save_lightmap(e, dst)
         print(name, e.shape[1], "px", "denoised" if not a.no_denoise else "raw", flush=True)
+        json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)
     json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)
     if missing:
         print("no raw lightmap yet for", len(missing), "chunks:", ",".join(missing))
