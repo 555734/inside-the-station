@@ -969,29 +969,65 @@ def cull_hidden(objs, col, rays=16, dry=False):
 
 # ------------------------------------------------------------------ lightmap UVs kept between runs
 
+def loop_keys(me):
+    """A 64-bit key per face corner that does not depend on element order (Blender's mesh cuts
+    do not keep the same order from run to run): the corner's vertex position, the next and
+    previous corner of its face (so a reversed face differs) and the material, hashed."""
+    nv, nl, npoly = len(me.vertices), len(me.loops), len(me.polygons)
+    co = np.empty(nv * 3, np.float32)
+    me.vertices.foreach_get("co", co)
+    q = np.round(co.reshape(-1, 3).astype(np.float64) * 1e4).astype(np.int64)
+    lv = np.empty(nl, np.int32)
+    me.loops.foreach_get("vertex_index", lv)
+    ls = np.empty(npoly, np.int32)
+    me.polygons.foreach_get("loop_start", ls)
+    lt = np.empty(npoly, np.int32)
+    me.polygons.foreach_get("loop_total", lt)
+    mi = np.empty(npoly, np.int32)
+    me.polygons.foreach_get("material_index", mi)
+    poly = np.repeat(np.arange(npoly), lt)
+    start, total = ls[poly], lt[poly]
+    k = np.arange(nl) - start
+    nxt = start + (k + 1) % total
+    prv = start + (k - 1) % total
+    rows = np.concatenate([q[lv], q[lv[nxt]], q[lv[prv]], mi[poly][:, None].astype(np.int64)], 1).view(np.uint64)
+    h = np.full(nl, 0xcbf29ce484222325, np.uint64)
+    with np.errstate(over="ignore"):
+        for j in range(rows.shape[1]):                  # FNV-1a style mix, one column at a time
+            h = (h ^ rows[:, j]) * np.uint64(0x100000001b3)
+            h ^= h >> np.uint64(29)
+    return h
+
+
 def geom_signature(me):
     co = np.empty(len(me.vertices) * 3, np.float32)
     me.vertices.foreach_get("co", co)
-    lv = np.empty(len(me.loops), np.int32)
-    me.loops.foreach_get("vertex_index", lv)
     return [len(me.vertices), len(me.loops), len(me.polygons), round(float(np.abs(co).sum()), 1),
-            zlib.crc32(lv.tobytes())]
+            zlib.crc32(np.sort(loop_keys(me)).tobytes())]
 
 
 def save_uv(ob, d):
     uv = np.empty(len(ob.data.loops) * 2, np.float32)
     ob.data.uv_layers["Lightmap"].data.foreach_get("uv", uv)
-    np.save(os.path.join(d, ob.name + ".npy"), uv)
+    np.savez(os.path.join(d, ob.name + ".npz"), uv=uv.reshape(-1, 2), key=loop_keys(ob.data))
     return geom_signature(ob.data)
 
 
 def load_uv(ob, d, sig):
-    """Reuse the lightmap layout of an earlier run, so its baked lightmaps stay valid."""
+    """Reuse the lightmap layout of an earlier run, so its baked lightmaps stay valid. Corners are
+    matched by loop_keys, not by index."""
     me = ob.data
     if geom_signature(me) != sig:
         raise RuntimeError(f"{ob.name}: geometry differs from the earlier run, its lightmaps would not fit")
+    z = np.load(os.path.join(d, ob.name + ".npz"))
+    order = np.argsort(z["key"], kind="stable")
+    sk = z["key"][order]
+    cur = loop_keys(me)
+    i = np.clip(np.searchsorted(sk, cur), 0, len(sk) - 1)
+    if not np.array_equal(sk[i], cur):
+        raise RuntimeError(f"{ob.name}: {int((sk[i] != cur).sum())} face corners not found in the earlier layout")
     lm = me.uv_layers.new(name="Lightmap")
-    lm.data.foreach_set("uv", np.load(os.path.join(d, ob.name + ".npy")))
+    lm.data.foreach_set("uv", z["uv"][order][i].ravel())
     me.uv_layers.active = lm
 
 
