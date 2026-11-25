@@ -102,4 +102,18 @@ python3 umeda/build_umeda.py --view arch --width 480 --samples 8 "--multi=88.5,-
 ```
 
 `pip install opencv-python-headless` も必要です。
-GPU のない4コアの CPU で、1920×1080 の1枚に約1時間かかります。
+GPU のない4コアの CPU では、1920×1080 の1枚（160サンプル）に約40分かかります。
+環境が途中で再起動しても続きから描けるよう、`scripts/umeda/render_strips.py` で6本の帯に分けて描き、あとでつなぐこともできます。
+
+### Kaggle の GPU で描画する（掲載している5枚はこの方法、512サンプル）
+
+```bash
+pip install kaggle                                   # Kaggle の API トークンが必要
+python3 scripts/kaggle/kaggle_render.py bundle       # スクリプト・フォント・テクスチャを非公開データセットとしてアップロード
+python3 scripts/kaggle/kaggle_render.py run arch stairtop track1 concourse gate --samples 512 --noise 0.008
+cd scripts && python3 post.py ../render/umeda_arch.exr ../render/umeda_arch.png --exposure -0.9 --grain 0.8 --view "Khronos PBR Neutral" --look None
+```
+
+Kaggle の無料 GPU（Tesla T4 ×2、OptiX）では、160サンプルの1枚が84秒で描けました（上の CPU の約28倍）。
+512サンプルの5枚をまとめて描くと、準備を含めて約24分です。
+公式の構内図と参考写真はアップロードしません。描画に使うのは、地図から作った `plan.json` だけです。
