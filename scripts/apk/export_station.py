@@ -296,8 +296,10 @@ def cull_hidden(objs, rays=24):
     r = np.sqrt(1.0 - z * z)
     local = np.stack([r * np.cos(phi), r * np.sin(phi), z], 1)
     total = removed = 0.0
+    lost = {}                 # chunk -> removed area (by face centre)
     for ob in objs:
         me = ob.data
+        level = ob.name[2:]
         n = len(me.polygons)
         cen = np.empty(n * 3, np.float32)
         me.polygons.foreach_get("center", cen)
@@ -325,6 +327,9 @@ def cull_hidden(objs, rays=24):
             hidden[f] = not seen
         total += float(area.sum())
         removed += float(area[hidden].sum())
+        for f in np.nonzero(hidden)[0]:
+            k = chunk_key(level, cen[f][0], cen[f][1])
+            lost[k] = lost.get(k, 0.0) + float(area[f])
         bm = bmesh.new()
         bm.from_mesh(me)
         bm.faces.ensure_lookup_table()
@@ -334,6 +339,7 @@ def cull_hidden(objs, rays=24):
         bm.free()
         log(f"{ob.name}: {int(hidden.sum())} of {n} faces never visible, removed")
     log(f"hidden area removed {removed:.0f} of {total:.0f} m2 ({100 * removed / max(total, 1):.1f}%)")
+    return lost
 
 
 # ------------------------------------------------------------------ lightmap UVs kept between runs
@@ -635,8 +641,7 @@ def main():
         if meshes:
             levels[level] = join_meshes(f"L_{level}", meshes)
             log(level, "faces", len(levels[level].data.polygons))
-    if not a.no_cull:
-        cull_hidden(list(levels.values()))
+    lost = {} if a.no_cull else cull_hidden(list(levels.values()))
     chunks = []
     for level, ob in levels.items():
         chunks += split_into_chunks(ob, level)
@@ -645,10 +650,14 @@ def main():
     sizes = {}
     for ob in chunks:
         area = surface_area(ob.data)
-        px = math.sqrt(area / 0.55) / a.texel
+        full = area + lost.get(ob.name, 0.0)          # the chunk's area before hidden faces went
+        px = math.sqrt(full / 0.55) / a.texel
         s = 256
         while s < px and s < a.max_lm:
             s *= 2
+        if lost:
+            # same texel density as the full chunk would get, on the smaller visible area
+            s = max(256, int(math.ceil(s * math.sqrt(area / full) / 64.0)) * 64)
         sizes[ob.name] = s
     log("lightmap sizes", sorted(sizes.values()), f"= {sum(v * v for v in sizes.values()) / 1e6:.1f} Mpx")
     sigs = {}
