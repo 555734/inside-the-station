@@ -1,0 +1,85 @@
+# Bakes the walkthrough app's lightmaps (scripts/apk/export_station.py) on 20 runners at once.
+# Started by a push that changes .github/bake/request.json: the layout every runner must rebuild
+# (its id) and the chunks each runner bakes. Raw lightmaps come back as artifacts (raw-<part>);
+# scripts/apk/finish_station.py denoises them. The official map is fetched on each runner and
+# never stored in an artifact.
+name: bake-lightmaps
+on:
+  push:
+    paths: [".github/bake/request.json"]
+permissions:
+  contents: read
+concurrency:
+  group: bake-lightmaps
+  cancel-in-progress: true
+env:
+  EXPORT_ARGS: --samples 128 --texel 0.03 --max-lm 2048 --max-tex 1024
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - name: system packages
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y poppler-utils libxi6 libxkbcommon0 libxxf86vm1 libsm6 libgl1 libxrender1 libxfixes3 > /dev/null
+      - name: python packages
+        run: pip install -q bpy==5.3.0 numpy scipy pillow opencv-python-headless
+      - name: map plan and fonts
+        run: |
+          bash scripts/umeda/fetch_map.sh
+          python scripts/umeda/plan.py
+          bash scripts/fetch_fonts.sh > /dev/null
+      - name: layout (textures are generated on the way)
+        run: python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only
+      - name: same layout as the other bakes
+        run: |
+          python - <<'PY'
+          import json, sys
+          want = json.load(open(".github/bake/request.json"))["layout"]
+          got = json.load(open("/tmp/layout/uv/index.json"))["layout_id"]
+          print("layout", got, "expected", want)
+          sys.exit(0 if got == want else 1)
+          PY
+      - name: pack
+        run: tar -cf /tmp/prep.tar --exclude='cache/umeda/*.pdf' --exclude='cache/umeda/map*' --exclude='cache/umeda/page*' cache fonts -C /tmp layout/uv
+      - uses: actions/upload-artifact@v4
+        with: {name: prep, path: /tmp/prep.tar, retention-days: 1, compression-level: 0}
+      - uses: actions/upload-artifact@v4
+        with: {name: probe, path: /tmp/layout/uv/index.json, retention-days: 1}
+
+  bake:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        part: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - name: system packages
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y poppler-utils libxi6 libxkbcommon0 libxxf86vm1 libsm6 libgl1 libxrender1 libxfixes3 > /dev/null
+      - name: python packages
+        run: pip install -q bpy==5.3.0 numpy scipy pillow opencv-python-headless
+      - uses: actions/download-artifact@v4
+        with: {name: prep, path: /tmp}
+      - name: unpack, map and plan
+        run: |
+          tar -xf /tmp/prep.tar
+          mv layout /tmp/layout
+          bash scripts/umeda/fetch_map.sh
+          python scripts/umeda/plan.py
+      - name: bake this part
+        run: |
+          SKIP=$(python -c "import json,sys; r=json.load(open('.github/bake/request.json')); i=json.load(open('/tmp/layout/uv/index.json')); mine=set(r['parts'][int(sys.argv[1])-1]); print(','.join(sorted(set(i['sizes'])-mine)))" ${{ matrix.part }})
+          python scripts/apk/export_station.py /tmp/station $EXPORT_ARGS --uv-from /tmp/layout/uv \
+            --raw-dir /tmp/raw --skip "$SKIP" --reverse --deadline $(( $(date +%s) + 18600 ))
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: "raw-${{ matrix.part }}", path: /tmp/raw/, retention-days: 3, compression-level: 0, if-no-files-found: ignore}
