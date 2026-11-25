@@ -263,7 +263,7 @@ def lightmap_uv(ob):
 
 # ------------------------------------------------------------------ hidden faces
 
-def cull_hidden(objs, rays=24):
+def cull_hidden(objs, rays=24, dry=False):
     """Delete faces the walker can never see.
 
     The app draws front faces only, so a face is visible only from the space in front of it.
@@ -325,6 +325,9 @@ def cull_hidden(objs, rays=24):
                     seen = True
                     break
             hidden[f] = not seen
+        if dry:
+            ob["hidden"] = hidden.tolist()
+            continue
         total += float(area.sum())
         removed += float(area[hidden].sum())
         for f in np.nonzero(hidden)[0]:
