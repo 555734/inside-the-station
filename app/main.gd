@@ -159,6 +159,14 @@ func _load_station() -> void:
 			push_warning("no lightmap for " + chunk)
 			continue
 		var lm := _tex(lmi["file"])
+		if OS.get_cmdline_user_args().has("--chunkcol"):
+			# desktop check: a flat colour per chunk instead of its lightmap (finds which chunk a
+			# surface belongs to); the colours are printed as CHUNKCOL lines
+			var h := chunk.hash()
+			var img := Image.create(4, 4, false, Image.FORMAT_RGB8)
+			img.fill(Color(float(h & 255) / 255.0, float((h >> 8) & 255) / 255.0, float((h >> 16) & 255) / 255.0))
+			lm = ImageTexture.create_from_image(img)
+			print("CHUNKCOL ", chunk, " ", img.get_pixel(0, 0).to_html(false))
 		for s in mi.mesh.get_surface_count():
 			var sm: Material = mi.mesh.surface_get_material(s)
 			var mname := sm.resource_name if sm != null else ""
@@ -217,7 +225,7 @@ func _load_station() -> void:
 
 
 func _maybe_screenshot() -> void:
-	# desktop check: godot -- --shot=/path/out.png --spawn=0 [--yawoff=deg]
+	# desktop check: godot -- --shot=/path/out.png --spawn=0 [--yawoff=deg] [--pitch=deg]
 	var shot := ""
 	var spawn := 0
 	for a in OS.get_cmdline_user_args():
@@ -244,6 +252,13 @@ func _maybe_screenshot() -> void:
 	if shot == "":
 		return
 	_go(spawn)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--yawoff="):
+			player.yaw += deg_to_rad(float(a.substr(9)))
+		elif a.begins_with("--pitch="):
+			player.pitch = deg_to_rad(float(a.substr(8)))
+	player.rotation = Vector3(0, player.yaw, 0)
+	player.cam.rotation = Vector3(player.pitch, 0, 0)
 	spawn_buttons.visible = false
 	for i in 90:
 		await get_tree().process_frame
