@@ -9,3 +9,4 @@ render/umeda_map_overlay*
 render/umeda_preview.png
 render/umeda_z[0-9]*
 render/*.done
+render/fix11.started

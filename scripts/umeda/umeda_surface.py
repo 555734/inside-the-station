@@ -215,6 +215,17 @@ def floor_decal(mat, seed=0.0):
     s.add_rough(s.ramp(wear, 0.3, 0.7, -0.1, 0.15))
 
 
+def sign_face(mat, seed=0.0):
+    """Printed / backlit sign panels: satin acrylic face, not a mirror."""
+    s = _NT(mat)
+    b = s.b
+    b.inputs["Coat Weight"].default_value = 0.6
+    b.inputs["Coat IOR"].default_value = 1.49
+    sm = s.noise(4.0, 4.0, 0.6, seed=seed)
+    s.l(s.ramp(sm, 0.3, 0.7, 0.22, 0.38), b.inputs["Coat Roughness"])
+    s.b.inputs["Roughness"].default_value = 0.5
+
+
 def ceiling(mat, seed=0.0):
     s = _NT(mat)
     s.blotches(1.2, 0.05, 0.05, seed)
@@ -227,9 +238,9 @@ def apply_all(M):
         tile: ["track_tile", "wall_white", "wall_tile", "b1_wall"],
         paint: ["kiosk_black", "kiosk_white", "navy", "clad_dark", "psd_panel", "panel_white",
                 "parapet", "esc_clad", "beige", "column", "portal", "panel_grey"],
-        glass_cover: ["ad0", "ad1", "ad2", "adp0", "adp1", "adp2", "band0", "band1", "band2",
-                      "name_board_w", "name_board_e", "dep1", "dep2", "clock", "portal_sign",
-                      "exit_sign", "exit_b1", "track1", "track2", "gate_fascia_n", "b1_sign_down"],
+        glass_cover: ["ad0", "ad1", "ad2", "adp0", "adp1", "adp2", "dep1", "dep2", "clock"],
+        sign_face: ["band0", "band1", "band2", "name_board_w", "name_board_e", "portal_sign",
+                    "exit_sign", "exit_b1", "track1", "track2", "gate_fascia_n", "b1_sign_down"],
         ceiling: ["ceil_b2", "ceil"],
         floor_decal: ["queue0", "queue1", "decal_up", "decal_down", "ic_only"],
     }
