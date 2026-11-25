@@ -45,6 +45,8 @@ Z_CROWN = Z_B2 + 8.05  # arch crown (rises into the B1 level, hence the void on 
 X_MIN, X_MAX = -112.0, 133.0   # tunnel extent modelled beyond the platform ends
 
 COLL = {}
+RAMPS = []      # walkable ramps over stairs/escalators for the walkthrough app: (y0, y1, [(x, z), ...])
+EXPORT = bool(os.environ.get("UMEDA_EXPORT"))   # app export: no procedural shader layers (not exportable)
 
 
 def coll(name):
@@ -460,7 +462,7 @@ def materials():
     M["decal_down"] = B.printed("decal_down", gfx["decal_down"], rough=0.5, coat=0.0)
     for k, sc, a, r, sd in (("b2_floor", 0.7, 0.09, 0.10, 1.0), ("b2_floor_band", 0.7, 0.09, 0.10, 1.0),
                             ("b1_floor", 0.5, 0.07, 0.08, 2.0), ("track_tile", 1.5, 0.05, 0.05, 3.0)):
-        if k in M:
+        if k in M and not EXPORT:
             add_wear(M[k], sc, a, r, sd)
     M["lamp_red"] = B.emissive("lamp_red", (1.0, 0.08, 0.05), 6.0)
     M["lamp_amber"] = B.emissive("lamp_amber", (1.0, 0.45, 0.05), 5.0)
@@ -471,7 +473,8 @@ def materials():
     for k in ("psd_sticker", "ic_reader", "gate_ok", "gate_ng", "ic_only", "hydrant", "aed", "estop", "asset"):
         em = {"ic_reader": 1.5, "gate_ok": 3.0, "gate_ng": 3.0}.get(k, 0.0)
         M[k] = B.printed(k, gfx[k], rough=0.35, coat=0.3 if k not in ("ic_only",) else 0.0, emission=em)
-    US.apply_all(M)
+    if not EXPORT:
+        US.apply_all(M)
     return M
 
 
@@ -970,10 +973,12 @@ def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, low
     half = n // 2 if lower is None else n - lower
     x = x_top
     z = z_top
+    path = [(x_top - sgn * 0.3, z_top), (x_top, z_top)]
     for i in range(n):
         if i == half and land > 0:
             xa, xb = sorted((x, x + sgn * land))
             bx(f"{name}_land", (xa, y0, z_bot), (xb, y1, z), M["stair"], cname)
+            path += [(x, z), (x + sgn * land, z)]
             x += sgn * land
         z_step = z - riser
         xa, xb = sorted((x, x + sgn * tread))
@@ -982,6 +987,8 @@ def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, low
         bx(f"{name}_n{i}", (xn, y0 + 0.05, z_step - 0.004), (xn + 0.04, y1 - 0.05, z_step + 0.002), M["nosing"], cname)
         x += sgn * tread
         z = z_step
+    path += [(x, z), (x + sgn * 0.3, z)]
+    RAMPS.append((y0, y1, path))
     # handrails (sides + centre)
     for yy in (y0 + 0.08, (y0 + y1) / 2, y1 - 0.08):
         p0 = Vector((x_top, yy, z_top + 0.85))
@@ -1069,6 +1076,7 @@ def escalator(name, x_top, x_bot, y0, y1, M, cname):
     # truss mass under the steps
     pts = [(x_bot, Z_B2 - 0.3), (x_bot, Z_B2), (xa, Z_B2), (xb, Z_B1), (x_top, Z_B1), (x_top, Z_B2 - 0.3)]
     incline_prism(name + "_truss", pts, y0, y1, M["esc_clad"], cname)
+    RAMPS.append((y0 + 0.28, y1 - 0.28, [(x_bot + sgn * 0.3, Z_B2), (xa, Z_B2), (xb, Z_B1), (x_top - sgn * 0.3, Z_B1)]))
     # steps (sit on top of the truss line)
     wy0, wy1 = y0 + 0.28, y1 - 0.28
     for i in range(n):

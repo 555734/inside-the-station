@@ -3,6 +3,8 @@
   python3 scripts/kaggle/kaggle_render.py bundle            # upload scripts/fonts/textures as a PRIVATE dataset
   python3 scripts/kaggle/kaggle_render.py run arch gate ... [--samples 512 --noise 0.008 --width 1920]
                                                              # push a GPU notebook, wait, download the EXRs to render/
+  python3 scripts/kaggle/kaggle_render.py run __export__ --samples 1024
+                                                             # bake + export the walkthrough data into app/station/
 
 Needs the Kaggle CLI (pip install kaggle) and an API token (KAGGLE_API_TOKEN or ~/.kaggle).
 The official station map and the reference photos are NOT uploaded: rendering only needs
@@ -83,6 +85,9 @@ if tars:
     tarfile.open(tars[0]).extractall("/tmp/w")
 else:
     run(f"cp -r {os.path.dirname(os.path.dirname(os.path.dirname(src[0])))} /tmp/w/proj")
+# the scripts travel with the notebook (always current); the dataset only carries fonts/textures
+import base64, io
+tarfile.open(fileobj=io.BytesIO(base64.b64decode(SCRIPTS_B64))).extractall("/tmp/w/proj")
 run("nvidia-smi --query-gpu=name,memory.total --format=csv")
 run("pip -q install uv")
 run("uv venv -q /tmp/venv -p 3.13")
@@ -93,6 +98,13 @@ except subprocess.CalledProcessError:
     run("apt-get -qq update && apt-get -qq install -y libxi6 libxkbcommon0 libxxf86vm1 libsm6 libgl1 libxrender1 libxfixes3 > /dev/null")
 print(f"setup {time.time() - t0:.0f}s", flush=True)
 env = dict(os.environ, UMEDA_GPU="1")
+if VIEWS == ["__export__"]:
+    t1 = time.time()
+    run(f"/tmp/venv/bin/python export_station.py /tmp/station {ARGS} --gpu", cwd="/tmp/w/proj/scripts/apk", env=env)
+    import shutil
+    shutil.make_archive("/kaggle/working/station", "zip", "/tmp/station")
+    print(f"export {time.time() - t1:.0f}s", flush=True)
+    VIEWS = []
 for v in VIEWS:
     t1 = time.time()
     run(f"/tmp/venv/bin/python build_umeda.py --view {v} --out /kaggle/working/umeda_{v}.exr {ARGS}",
@@ -106,8 +118,20 @@ def run(views, args):
     d = os.path.join(WORK, "kernel")
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d)
-    extra = f"--width {args.width} --samples {args.samples} --noise {args.noise}"
+    if views == ["__export__"]:
+        extra = f"--samples {args.samples} --texel {args.texel} --max-lm {args.max_lm} --max-tex {args.max_tex}"
+    else:
+        extra = f"--width {args.width} --samples {args.samples} --noise {args.noise}"
+    import base64
+    import io
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        tf.add(os.path.join(ROOT, "scripts"), arcname="scripts",
+               filter=lambda ti: None if ("__pycache__" in ti.name or "/kaggle" in ti.name) else ti)
+    b64 = base64.b64encode(buf.getvalue()).decode()
     code = KERNEL_CODE.replace("__VIEWS__", repr(views)).replace("__ARGS__", repr(extra))
+    code = "SCRIPTS_B64 = " + repr(b64) + "\n" + code
     open(os.path.join(d, "run.py"), "w").write(code)
     meta = {"id": f"{user()}/{KERNEL}", "title": KERNEL, "code_file": "run.py", "language": "python",
             "kernel_type": "script", "is_private": "true", "enable_gpu": "true", "enable_internet": "true",
@@ -130,6 +154,14 @@ def run(views, args):
     os.makedirs(out)
     sh(["kaggle", "kernels", "output", ref, "-p", out])
     got = []
+    if views == ["__export__"]:
+        zp = os.path.join(out, "station.zip")
+        if os.path.exists(zp):
+            dst = os.path.join(ROOT, "app", "station")
+            shutil.rmtree(dst, ignore_errors=True)
+            shutil.unpack_archive(zp, dst)
+            got = ["station.zip"]
+        views = got[:1] or views
     for f in os.listdir(out):
         if f.endswith(".exr"):
             shutil.move(os.path.join(out, f), os.path.join(ROOT, "render", f))
@@ -149,6 +181,9 @@ def main():
     ap.add_argument("--width", type=int, default=1920)
     ap.add_argument("--samples", type=int, default=512)
     ap.add_argument("--noise", type=float, default=0.008)
+    ap.add_argument("--texel", type=float, default=0.03)
+    ap.add_argument("--max-lm", type=int, default=2048)
+    ap.add_argument("--max-tex", type=int, default=1024)
     a = ap.parse_args()
     if a.cmd == "bundle":
         bundle()

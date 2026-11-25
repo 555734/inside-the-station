@@ -466,7 +466,7 @@ def build(h, M):
     setup(h)
     V = Vault(H.PLAN, H.Z_B2)
     d = bake(V, H.T.CACHE)
-    vault_mesh(V, vault_material(V, d))
+    vault_mesh(V, vault_material(V, d), step=float(os.environ.get("UMEDA_VAULT_STEP", "0.07")))
     st = H.PLAN["stairs"]["J"]
     end_walls(V, M["panel_white"], H.Z_B2_CEIL, gap=(st["y0"] - 0.2, st["y1"] + 0.2, H.Z_B1 + 2.6))
     light_boxes(V, M)
