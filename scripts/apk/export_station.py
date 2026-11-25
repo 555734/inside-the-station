@@ -1085,13 +1085,15 @@ def bake_batch(chunks, sizes, raw_dir):
         bpy.data.images.remove(img)
 
 
-def bake(chunks, sizes, samples, raw_dir, deadline=0.0, skip=()):
+def bake(chunks, sizes, samples, raw_dir, deadline=0.0, skip=(), reverse=False):
     """Bake every chunk not yet in raw_dir, in batches, and stop before `deadline` (epoch s).
     Raw lightmaps are float16 irradiance (rows bottom-up, as Blender stores them)."""
     os.makedirs(raw_dir, exist_ok=True)
     bake_settings(samples)
     todo = [ob for ob in chunks if ob.name not in skip
             and not os.path.exists(os.path.join(raw_dir, ob.name + ".npz"))]
+    if reverse:                    # a second machine baking at the same time starts from the other end
+        todo = todo[::-1]
     batches, cur, cur_px = [], [], 0
     for ob in todo:
         px = sizes[ob.name] ** 2
@@ -1286,6 +1288,7 @@ def main():
                     help="drop faces that can never be seen (experimental: has dropped visible faces)")
     ap.add_argument("--no-cull", action="store_true", help="(default; kept for older command lines)")
     ap.add_argument("--layout-only", action="store_true", help="write the layouts (uv/) and stop")
+    ap.add_argument("--reverse", action="store_true", help="bake the chunks in reverse order")
     ap.add_argument("--check-void", action="store_true", help="report how much empty space the walker can still see")
     a = ap.parse_args()
     out = os.path.abspath(a.out)
@@ -1413,7 +1416,7 @@ def main():
         log("packed", a.zip)
     col.hide_render = True                     # the walk ramps must not shade anything
     skip = set(x for x in a.skip.split(",") if x)
-    prog = bake(chunks, sizes, a.samples, raw_dir, a.deadline, skip)
+    prog = bake(chunks, sizes, a.samples, raw_dir, a.deadline, skip, reverse=a.reverse)
     log("done", out, "left:", len(prog["left"]))
 
 

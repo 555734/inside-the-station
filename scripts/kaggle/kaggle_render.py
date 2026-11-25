@@ -89,6 +89,7 @@ ARGS = __ARGS__
 BUDGET = __BUDGET__
 SKIP = __SKIP__
 LAYOUT = __LAYOUT__
+DEVICE = __DEVICE__
 t0 = time.time()
 def run(cmd, **kw):
     print("+", cmd, flush=True)
@@ -118,7 +119,7 @@ try:
 except subprocess.CalledProcessError:
     run("apt-get -qq update && apt-get -qq install -y libxi6 libxkbcommon0 libxxf86vm1 libsm6 libgl1 libxrender1 libxfixes3 > /dev/null")
 print(f"setup {time.time() - t0:.0f}s", flush=True)
-env = dict(os.environ, UMEDA_GPU="1")
+env = dict(os.environ, UMEDA_GPU="1") if DEVICE == "gpu" else dict(os.environ)
 if VIEWS == ["__export__"]:
     t1 = time.time()
     resume = ""
@@ -130,7 +131,8 @@ if VIEWS == ["__export__"]:
             resume += " --skip " + ",".join(SKIP)
     # raw lightmaps go straight to /kaggle/working as each batch finishes; no batch starts that
     # could not end before the GPU quota left this week runs out
-    run(f"/tmp/venv/bin/python export_station.py /tmp/station {ARGS} --gpu --raw-dir /kaggle/working "
+    dev = "--gpu" if DEVICE == "gpu" else "--reverse"      # TPU machine: bake on its CPUs, from the other end
+    run(f"/tmp/venv/bin/python export_station.py /tmp/station {ARGS} {dev} --raw-dir /kaggle/working "
         f"--zip /kaggle/working/station.zip --deadline {t0 + BUDGET:.0f} {resume}",
         cwd="/tmp/w/proj/scripts/apk", env=env)
     print(f"export {time.time() - t1:.0f}s", flush=True)
@@ -144,18 +146,18 @@ print(f"total {time.time() - t0:.0f}s", flush=True)
 '''
 
 
-def gpu_quota_left():
-    """Seconds of Kaggle GPU time left this week (the session is stopped when it runs out)."""
+def gpu_quota_left(kind="gpu"):
+    """Seconds of Kaggle GPU (or TPU) time left this week (the session is stopped when it runs out)."""
     from kaggle.api.kaggle_api_extended import KaggleApi
     import kagglesdk.kernels.types.kernels_api_service as t
     api = KaggleApi()
     api.authenticate()
     with api.build_kaggle_client() as k:
         q = k.kernels.kernels_api_client.get_accelerator_quota_statistics(
-            t.ApiGetAcceleratorQuotaStatisticsRequest()).to_dict()["gpuQuota"]
+            t.ApiGetAcceleratorQuotaStatisticsRequest()).to_dict()[kind + "Quota"]
     sec = lambda v: float(str(v).rstrip("s").split(".")[0] or 0)      # noqa: E731 ("11662.902555.0s")
     left = sec(q["totalTimeAllowed"]) - sec(q["timeUsed"])
-    print(f"GPU quota: {sec(q['timeUsed']) / 3600:.2f} h used of {sec(q['totalTimeAllowed']) / 3600:.1f} h, "
+    print(f"{kind.upper()} quota: {sec(q['timeUsed']) / 3600:.2f} h used of {sec(q['totalTimeAllowed']) / 3600:.1f} h, "
           f"refresh {q.get('quotaRefreshTime')}", flush=True)
     return left
 
@@ -180,7 +182,8 @@ def run(views, args):
     b64 = base64.b64encode(buf.getvalue()).decode()
     budget, skip = 0, []
     if views == ["__export__"]:
-        budget = gpu_quota_left() - args.margin
+        budget = gpu_quota_left("tpu" if args.tpu else "gpu") - args.margin
+        budget = min(budget, 9 * 3600 - args.margin)          # one session runs at most 9 hours
         if budget < 1800:
             sys.exit(f"only {budget + args.margin:.0f}s of GPU quota left this week")
         raw = os.path.join(WORK, "lm_raw")
@@ -198,16 +201,19 @@ def run(views, args):
         print(f"bake budget {budget:.0f}s, {len(skip)} chunks already baked", flush=True)
     code = KERNEL_CODE.replace("__VIEWS__", repr(views)).replace("__ARGS__", repr(extra))
     code = code.replace("__BUDGET__", repr(budget)).replace("__SKIP__", repr(skip))
+    code = code.replace("__DEVICE__", repr("tpu" if args.tpu else "gpu"))
     code = code.replace("__LAYOUT__", repr(layout_id(os.path.join(WORK, "apk_uv")) if views == ["__export__"] else ""))
     code = "SCRIPTS_B64 = " + repr(b64) + "\n" + code
     open(os.path.join(d, "run.py"), "w").write(code)
-    meta = {"id": f"{user()}/{KERNEL}", "title": KERNEL, "code_file": "run.py", "language": "python",
-            "kernel_type": "script", "is_private": "true", "enable_gpu": "true", "enable_internet": "true",
-            "machine_shape": "NvidiaTeslaT4", "dataset_sources": [f"{user()}/{DATASET}"],
+    kernel = KERNEL + ("-tpu" if args.tpu else "")
+    meta = {"id": f"{user()}/{kernel}", "title": kernel, "code_file": "run.py", "language": "python",
+            "kernel_type": "script", "is_private": "true", "enable_internet": "true",
+            "enable_gpu": "false" if args.tpu else "true", "enable_tpu": "true" if args.tpu else "false",
+            "machine_shape": "TpuV5E8" if args.tpu else "NvidiaTeslaT4", "dataset_sources": [f"{user()}/{DATASET}"],
             "competition_sources": [], "kernel_sources": []}
     json.dump(meta, open(os.path.join(d, "kernel-metadata.json"), "w"))
     sh(["kaggle", "kernels", "push", "-p", d])
-    ref = f"{user()}/{KERNEL}"
+    ref = f"{user()}/{kernel}"
     t0 = time.time()
     while True:
         time.sleep(30)
@@ -217,7 +223,7 @@ def run(views, args):
         low = st.lower()
         if "complete" in low or "error" in low or "cancel" in low:
             break
-    out = os.path.join(WORK, "output")
+    out = os.path.join(WORK, "output_tpu" if args.tpu else "output")
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     sh(["kaggle", "kernels", "output", ref, "-p", out])
@@ -269,6 +275,8 @@ def main():
     ap.add_argument("--max-lm", type=int, default=2048)
     ap.add_argument("--max-tex", type=int, default=1024)
     ap.add_argument("--margin", type=float, default=900, help="GPU seconds kept in reserve (export runs)")
+    ap.add_argument("--tpu", action="store_true",
+                    help="export runs: use a TPU machine's CPUs (separate weekly quota), baking from the last chunk")
     ap.add_argument("--no-cull", action="store_true", help="export runs: keep faces that can never be seen")
     a = ap.parse_args()
     if a.cmd == "bundle":
