@@ -263,16 +263,87 @@ def lightmap_uv(ob):
 
 # ------------------------------------------------------------------ hidden faces
 
-def cull_hidden(objs, rays=24, dry=False):
+class EyeSpace:
+    """Where the walker's eyes can be: a layer 1.35-1.85 m above every upward-facing collision
+    surface (floors, stair/escalator ramps, platforms), on a 0.25 m voxel grid."""
+
+    def __init__(self, col, vox=0.25):
+        me = col.data
+        co = np.empty(len(me.vertices) * 3, np.float32)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        self.vox = vox
+        self.lo = co.min(0) - 2.0
+        hi = co.max(0) + 3.0
+        self.shape = tuple(int(v) for v in np.ceil((hi - self.lo) / vox))
+        self.grid = np.zeros(self.shape, bool)
+        tris = []
+        for poly in me.polygons:
+            if poly.normal.z > 0.5:
+                vs = list(poly.vertices)
+                for k in range(1, len(vs) - 1):
+                    tris.append((vs[0], vs[k], vs[k + 1]))
+        step = 0.15
+        for a, b, c in tris:
+            A, Bv, C = co[a], co[b], co[c]
+            n = int(np.ceil(max(np.linalg.norm(Bv - A), np.linalg.norm(C - A), np.linalg.norm(C - Bv)) / step)) + 1
+            u, v = np.meshgrid(np.linspace(0, 1, n + 1), np.linspace(0, 1, n + 1))
+            m = (u + v) <= 1.0
+            u, v = u[m], v[m]
+            pts = A + np.outer(u, Bv - A) + np.outer(v, C - A)
+            for dz in np.arange(1.35, 1.86, vox / 2):
+                q = pts + (0.0, 0.0, dz)
+                ix = ((q - self.lo) / vox).astype(np.int64)
+                self.grid[ix[:, 0], ix[:, 1], ix[:, 2]] = True
+        log(f"eye space: {int(self.grid.sum())} voxels over {len(tris)} walkable triangles")
+
+    def crosses(self, o, d, length):
+        """Does the segment o -> o + d * length pass through the eye space?"""
+        t = np.arange(0.05, length, self.vox * 0.5)
+        if len(t) == 0:
+            return False
+        q = (np.asarray(o) + np.outer(t, d) - self.lo) / self.vox
+        ix = q.astype(np.int64)
+        ok = (ix >= 0).all(1) & (ix[:, 0] < self.shape[0]) & (ix[:, 1] < self.shape[1]) & (ix[:, 2] < self.shape[2])
+        ix = ix[ok]
+        return bool(self.grid[ix[:, 0], ix[:, 1], ix[:, 2]].any())
+
+
+def _face_points(co, verts, area, per=0.04, cap=128):
+    """The centre plus stratified points over the polygon (about one per `per` m2)."""
+    P = co[verts]
+    cen = P.mean(0)
+    n = int(min(cap, np.ceil(area / per)))
+    out = [cen]
+    if n <= 1:
+        return out
+    tris = [(P[0], P[k], P[k + 1]) for k in range(1, len(P) - 1)]
+    ta = np.array([0.5 * np.linalg.norm(np.cross(b - a, c - a)) for a, b, c in tris])
+    if ta.sum() <= 0:
+        return out
+    cnt = np.maximum(1, np.round(n * ta / ta.sum())).astype(int)
+    for (a, b, c), k in zip(tris, cnt):
+        g = int(np.ceil(np.sqrt(2 * k)))
+        for i in range(g):
+            for j in range(g - i):
+                u, v = (i + 1 / 3) / g, (j + 1 / 3) / g
+                p = a + u * (b - a) + v * (c - a)
+                out.append(cen + (p - cen) * 0.98)
+    return out
+
+
+def cull_hidden(objs, col, rays=16, dry=False):
     """Delete faces the walker can never see.
 
-    The app draws front faces only, so a face is visible only from the space in front of it.
-    From each face, rays go out over its front hemisphere; if none of them lands on the front
-    of another surface (i.e. the face looks into solid ground, a closed cavity or empty space
-    outside the station), no point inside the station can see it.
+    The app draws front faces only, so a face can be seen only from the space in front of it.
+    From points spread over each face, rays go out over its front hemisphere. A face is kept
+    if any ray lands on the front of another surface (open space between the two) or passes
+    through the eye space (EyeSpace) before something blocks it. Faces that only look into solid
+    ground, closed cavities or empty space outside the station are removed.
     """
     from mathutils import Vector
     from mathutils.bvhtree import BVHTree
+    eyes = EyeSpace(col)
     verts, polys, off = [], [], 0
     for ob in objs:
         me = ob.data
@@ -295,12 +366,31 @@ def cull_hidden(objs, rays=24, dry=False):
     phi = k * math.pi * (3.0 - math.sqrt(5.0))
     r = np.sqrt(1.0 - z * z)
     local = np.stack([r * np.cos(phi), r * np.sin(phi), z], 1)
+
+    def seen_from(o, dirs):
+        for d in dirs:
+            dv = Vector(d)
+            org = Vector(o)
+            hit = tree.ray_cast(org, dv, 400.0)
+            if hit[0] is None:
+                if eyes.crosses(o, d, 150.0):
+                    return True
+                continue
+            if hit[1].dot(dv) < 0.0:          # the front of another surface: open space in between
+                return True
+            if eyes.crosses(o, d, hit[3]):     # eye space before the blocking surface
+                return True
+        return False
+
     total = removed = 0.0
     lost = {}                 # chunk -> removed area (by face centre)
     for ob in objs:
         me = ob.data
         level = ob.name[2:]
         n = len(me.polygons)
+        co = np.empty(len(me.vertices) * 3, np.float32)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3).astype(np.float64)
         cen = np.empty(n * 3, np.float32)
         me.polygons.foreach_get("center", cen)
         nor = np.empty(n * 3, np.float32)
@@ -309,19 +399,17 @@ def cull_hidden(objs, rays=24, dry=False):
         me.polygons.foreach_get("area", area)
         cen, nor = cen.reshape(n, 3), nor.reshape(n, 3)
         hidden = np.zeros(n, bool)
-        for f in range(n):
-            nz = nor[f]
+        for f, poly in enumerate(me.polygons):
+            nz = nor[f].astype(np.float64)
             if not nz.any():
                 continue
             t = np.cross(nz, (1.0, 0.0, 0.0) if abs(nz[0]) < 0.9 else (0.0, 1.0, 0.0))
             t /= np.linalg.norm(t)
             b = np.cross(nz, t)
-            dirs = local[:, :1] * t + local[:, 1:2] * b + local[:, 2:] * nz
-            o = Vector((cen[f] + nz * 0.002).tolist())
+            dirs = (local[:, :1] * t + local[:, 1:2] * b + local[:, 2:] * nz).tolist()
             seen = False
-            for d in dirs.tolist():
-                hit = tree.ray_cast(o, Vector(d), 400.0)
-                if hit[0] is not None and (hit[1][0] * d[0] + hit[1][1] * d[1] + hit[1][2] * d[2]) < 0.0:
+            for p in _face_points(co, list(poly.vertices), float(area[f])):
+                if seen_from((p + nz * 0.002).tolist(), dirs):
                     seen = True
                     break
             hidden[f] = not seen
@@ -644,7 +732,7 @@ def main():
         if meshes:
             levels[level] = join_meshes(f"L_{level}", meshes)
             log(level, "faces", len(levels[level].data.polygons))
-    lost = {} if a.no_cull else cull_hidden(list(levels.values()))
+    lost = {} if a.no_cull else cull_hidden(list(levels.values()), col)
     chunks = []
     for level, ob in levels.items():
         chunks += split_into_chunks(ob, level)
