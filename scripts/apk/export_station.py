@@ -12,7 +12,7 @@ exported), then:
      where the model just stops (ceiling holes, open corridor ends, exits) ceilings, end walls
      and stairwell bulkheads are added - all found by rays from eye points over every floor the
      walker can reach,
-  2. cuts it into 20 m chunks and gives each a lightmap UV layout at which 95 % of its surface
+  2. cuts it into 20 m chunks and gives each a lightmap UV layout at which 99 % of its surface
      gets texels of --texel or finer along both directions (chunks that would need more than
      --max-lm are halved); everything is kept in uv/ so another run rebuilds the same chunks,
   3. writes station.glb (chunks), collision.glb (walkable surfaces, stairs as ramps),
@@ -255,7 +255,7 @@ def surface_area(me):
 
 LM_ANGLE = 45.0          # smart-project charts: faces within this angle of the chart's direction
 LM_GUTTER_PX = 4         # empty texels between charts (the bake extends edges into them)
-LM_QUANTILE = 0.95       # this share of the surface (by area) gets the texel size or finer
+LM_QUANTILE = 0.99       # this share of the surface (by area) gets the texel size or finer
 
 
 def lightmap_uv(ob, size):
@@ -1332,8 +1332,8 @@ def main():
     json.dump(index, open(os.path.join(out, "uv", "index.json"), "w"))
     log("chunks", len(chunks), "lightmap sizes", sorted(sizes.values()),
         f"= {sum(v * v for v in sizes.values()) / 1e6:.1f} Mpx", "layout", index["layout_id"])
-    worst = max(q.items(), key=lambda kv: kv[1][1])
-    log(f"texel cm (coarse axis) p95 worst {worst[0]} {worst[1]}", "reused" if old else "made")
+    worst = max(q.items(), key=lambda kv: kv[1][2])
+    log(f"texel cm (coarse axis) p50/p95/p99, worst p99 {worst[0]} {worst[1]}", "reused" if old else "made")
     if a.layout_only:
         return
     # materials actually used

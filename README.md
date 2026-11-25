@@ -137,7 +137,7 @@ Kaggle の無料 GPU（Tesla T4 ×2、OptiX）では、160サンプルの1枚が
 #      裏からしか見えない面は向きを直し、両側から見える面は裏面を足す
 #    ・モデルが途切れて何もない空間が見える所（天井の穴、通路の端、地上出口の上）に
 #      天井・端の壁・階段室の下がり壁を足す（端の壁は歩いて落ちないよう当たり判定にも入れる）
-#    ・20 m ごとの区画にライトマップ用 UV を付け、各区画の面積の95%が 3 cm 以下の画素になる
+#    ・20 m ごとの区画にライトマップ用 UV を付け、各区画の面積の99%が 3 cm 以下の画素になる
 #      大きさにする（2048 を超える区画は半分に分ける）。残りの空間の量と画素の大きさを表示する
 python3 scripts/apk/export_station.py /tmp/layout --texel 0.03 --max-lm 2048 --max-tex 1024 --layout-only --check-void
 rm -rf cache/kaggle/apk_uv && cp -r /tmp/layout/uv cache/kaggle/apk_uv
