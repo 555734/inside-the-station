@@ -127,18 +127,27 @@ Kaggle の無料 GPU（Tesla T4 ×2、OptiX）では、160サンプルの1枚が
 - **光**：Cycles で光の当たり方（直接光と間接光、すべての照明と光る看板・LED）を計算し、テクスチャ（ライトマップ、約3 cm 角で1画素）に焼き込んで、ノイズを除いています。スマートフォンはそれを表示するだけなので、静止画に近い明るさの分布になります。
 - **反射**：床や金属の映り込みは、駅の中に約70個置いた反射プローブで表示します。静止画のパストレーシングほど正確な反射ではありません。
 - **操作**：画面の左側をドラッグすると移動、右側をドラッグすると見回します。右上のボタンで5か所（2番線アーチ、1番線、J階段、北改札内通路、北改札）に移動でき、「歩く/走る」を切り替えられます。
-- **歩ける範囲**：B1 コンコースと B2 ホームの全体です。階段とエスカレーターは上り下りできます。壁・ホーム柵・改札機は通り抜けられません。地上への出口階段は途中で行き止まりです。
+- **歩ける範囲**：B1 コンコースと B2 ホームの全体です。階段とエスカレーターは上り下りできます。壁・ホーム柵・改札機は通り抜けられません。地上への出口階段は上りきった所で行き止まりです（突き当たりは外の光のように白く光る壁）。モデルが途切れていた所は壁と天井で閉じています。
 
 ## 作り方
 
 ```bash
-# 1. 駅を書き出し、Kaggle の GPU で光を焼き込む（20 m ごとに分割、ライトマップ用 UV、Cycles 128サンプル）
-#    今週残っている GPU 時間に収まる分だけ焼き、焼けた分は cache/kaggle/lm_raw/ にたまる。
-#    残りがあれば、GPU 時間が戻ってからもう一度同じコマンドで続きを焼く（その前に bundle でレイアウトを上げ直す）
-python3 scripts/kaggle/kaggle_render.py run __export__ --samples 128 --texel 0.03 --max-lm 2048 --no-cull
-# 2. 焼いたライトマップのノイズを Open Image Denoise で除き、アプリ用の PNG にする（ローカル、GPU 不要）
+# 1. 書き出しの準備をローカルで作って確かめる（焼き込みはしない、CPU で約7分）
+#    ・歩ける床（出発地点からたどれる床）の上 1.6 m の目の位置から全方向に光線を飛ばし、
+#      裏からしか見えない面は向きを直し、両側から見える面は裏面を足す
+#    ・モデルが途切れて何もない空間が見える所（天井の穴、通路の端、地上出口の上）に
+#      天井・端の壁・階段室の下がり壁を足す（端の壁は歩いて落ちないよう当たり判定にも入れる）
+#    ・20 m ごとの区画にライトマップ用 UV を付け、各区画の面積の95%が 3 cm 以下の画素になる
+#      大きさにする（2048 を超える区画は半分に分ける）。残りの空間の量と画素の大きさを表示する
+python3 scripts/apk/export_station.py /tmp/layout --texel 0.03 --max-lm 2048 --max-tex 1024 --layout-only --check-void
+rm -rf cache/kaggle/apk_uv && cp -r /tmp/layout/uv cache/kaggle/apk_uv
+python3 scripts/kaggle/kaggle_render.py bundle      # このレイアウトを Kaggle に上げる
+# 2. Kaggle の GPU で光を焼き込む（Cycles 128サンプル）。今週残っている GPU 時間に収まる分だけ焼き、
+#    焼けた分は cache/kaggle/lm_raw/ にたまる。残りは GPU 時間が戻ってから同じコマンドで続きを焼く
+python3 scripts/kaggle/kaggle_render.py run __export__ --samples 128 --texel 0.03 --max-lm 2048 --margin 600
+# 3. 焼いたライトマップのノイズを Open Image Denoise で除き、アプリ用の PNG にする（ローカル、GPU 不要）
 python3 scripts/apk/finish_station.py app/station cache/kaggle/lm_raw
-# 3. APK を作る（Godot 4.4 と Android の export templates、Android SDK、JDK が必要）
+# 4. APK を作る（Godot 4.4 と Android の export templates、Android SDK、JDK が必要）
 cd app && godot --headless --import && godot --headless --export-debug "Android" ../build/umeda_walkthrough.apk
 ```
 
@@ -153,8 +162,11 @@ cd app && godot --headless --import && godot --headless --export-debug "Android"
 | 128サンプル（ノイズ除去なし） | 10.0 | 270 秒 |
 
 ノイズを除いた128サンプルは、ノイズの残る1024サンプルより正確で、焼き込み時間は8分の1です。
-駅全体（63区画、約2.4億画素）を1024サンプルで焼くと Kaggle の GPU で約21時間かかり、無料枠（週6時間）に収まりません。
+駅全体（約3.5億画素）を1024サンプルで焼くと Kaggle の GPU で約30時間かかり、無料枠（週6時間）に収まりません。
 
-見えない面（壁の裏など）を焼かない処理（`--no-cull` を外す）も入れてありますが、見えている面まで消える場合が残っているため、今は使っていません。
+ライトマップの画素の大きさは、面の上で一番粗い方向で測っています（UV が引き伸ばされると片方向だけ粗くなるため）。
+以前の UV（smart_project の correct_aspect あり、角度60°）は片方向に最大100倍引き伸ばされ、B2 の天井や壁で 1 m を超える画素が筋になっていました。
+
+見えない面（壁の裏など）を焼かない処理（`--cull`）も入れてありますが、見えている面まで消える場合が残っているため、使っていません。
 
 `app/station/`（書き出したデータ）と APK はサイズが大きいため、リポジトリには入れていません。

@@ -46,6 +46,11 @@ def user():
     return json.load(open(p))["username"]
 
 
+def layout_id(uv_dir):
+    p = os.path.join(uv_dir, "index.json")
+    return json.load(open(p)).get("layout_id", "") if os.path.exists(p) else ""
+
+
 def bundle():
     d = os.path.join(WORK, "dataset")
     shutil.rmtree(d, ignore_errors=True)
@@ -56,8 +61,9 @@ def bundle():
                     ignore=shutil.ignore_patterns("*.sh", "*.md"))
     shutil.copy(os.path.join(ROOT, "cache", "umeda", "plan.json"), os.path.join(d, "proj", "cache", "umeda"))
     uv = os.path.join(WORK, "apk_uv")
-    if os.path.isdir(uv):          # lightmap layouts of an earlier export run, so a later run can continue its bake
+    if os.path.isdir(uv):          # lightmap layouts (made locally or by an earlier run) the bake must use
         shutil.copytree(uv, os.path.join(d, "proj", "cache", "apk_uv"))
+        open(os.path.join(WORK, "bundled_layout"), "w").write(layout_id(uv))
     for c in CACHES:
         src = os.path.join(ROOT, "cache", c + ".npz")
         if os.path.exists(src):
@@ -109,8 +115,12 @@ env = dict(os.environ, UMEDA_GPU="1")
 if VIEWS == ["__export__"]:
     t1 = time.time()
     resume = ""
-    if SKIP:
-        resume = "--uv-from /tmp/w/proj/cache/apk_uv --skip " + ",".join(SKIP)
+    if os.path.exists("/tmp/w/proj/cache/apk_uv/index.json"):
+        # the layouts made and checked locally (export_station.py --layout-only): same chunks,
+        # face orientation, closures and lightmap UVs, so every run bakes the same lightmaps
+        resume = "--uv-from /tmp/w/proj/cache/apk_uv"
+        if SKIP:
+            resume += " --skip " + ",".join(SKIP)
     # raw lightmaps go straight to /kaggle/working as each batch finishes; no batch starts that
     # could not end before the GPU quota left this week runs out
     run(f"/tmp/venv/bin/python export_station.py /tmp/station {ARGS} --gpu --raw-dir /kaggle/working "
@@ -167,10 +177,17 @@ def run(views, args):
         if budget < 1800:
             sys.exit(f"only {budget + args.margin:.0f}s of GPU quota left this week")
         raw = os.path.join(WORK, "lm_raw")
+        lid = layout_id(os.path.join(WORK, "apk_uv"))
+        if lid:
+            bp = os.path.join(WORK, "bundled_layout")
+            if not os.path.exists(bp) or open(bp).read().strip() != lid:
+                sys.exit("cache/kaggle/apk_uv changed since the last upload: run the bundle command first")
         if os.path.isdir(raw):
             skip = sorted(f[:-4] for f in os.listdir(raw) if f.endswith(".npz"))
-        if skip and not os.path.isdir(os.path.join(WORK, "apk_uv")):
-            sys.exit("raw lightmaps exist but no saved layouts (cache/kaggle/apk_uv)")
+        if skip:
+            lp = os.path.join(raw, "LAYOUT")
+            if not lid or not os.path.exists(lp) or open(lp).read().strip() != lid:
+                sys.exit("cache/kaggle/lm_raw holds lightmaps of another layout: move them away first")
         print(f"bake budget {budget:.0f}s, {len(skip)} chunks already baked", flush=True)
     code = KERNEL_CODE.replace("__VIEWS__", repr(views)).replace("__ARGS__", repr(extra))
     code = code.replace("__BUDGET__", repr(budget)).replace("__SKIP__", repr(skip))
@@ -209,6 +226,9 @@ def run(views, args):
             shutil.copytree(os.path.join(dst, "uv"), uv)
         raw = os.path.join(WORK, "lm_raw")
         os.makedirs(raw, exist_ok=True)
+        lid = layout_id(os.path.join(WORK, "apk_uv"))
+        if lid:
+            open(os.path.join(raw, "LAYOUT"), "w").write(lid)
         for f in os.listdir(out):
             if f.endswith(".npz") or f == "progress.json":
                 shutil.move(os.path.join(out, f), os.path.join(raw, f))
