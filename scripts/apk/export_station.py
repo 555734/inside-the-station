@@ -178,7 +178,8 @@ def ramps_mesh():
         for (xa, za), (xb, zb) in zip(path[:-1], path[1:]):
             k = len(verts)
             verts += [(xa, y0, za + 0.01), (xb, y0, zb + 0.01), (xb, y1, zb + 0.01), (xa, y1, za + 0.01)]
-            faces.append((k, k + 1, k + 2, k + 3))
+            # face up whichever way the stair runs (collision is one-sided)
+            faces.append((k, k + 1, k + 2, k + 3) if (xb - xa) * (y1 - y0) > 0 else (k + 3, k + 2, k + 1, k))
     me = bpy.data.meshes.new("ramps")
     me.from_pydata(verts, [], faces)
     me.update()
@@ -411,7 +412,7 @@ def app_meta():
     spawns = [
         {"name": "2番線 アーチ", "pos": g((88.5, -1.6, Z2)), "fwd": fwd(105)},
         {"name": "1番線", "pos": g((82.5, 12.6, Z2)), "fwd": fwd(94)},
-        {"name": "J階段", "pos": g((96.5, -7.6, Z1)), "fwd": fwd(90)},
+        {"name": "J階段", "pos": g((P["stairs"]["J"]["x_top"] + 1.2, -7.6, Z1)), "fwd": fwd(90)},
         {"name": "北改札内 通路", "pos": g((st["x_top"] - 6.0, -5.2, Z1)), "fwd": fwd(-90)},
         {"name": "北改札", "pos": g((-132.6, -4.8, Z1)), "fwd": fwd(-116)},
     ]

@@ -175,7 +175,9 @@ func _load_station() -> void:
 	var body := StaticBody3D.new()
 	for cm in cms:
 		var shape := CollisionShape3D.new()
-		shape.shape = cm.mesh.create_trimesh_shape()
+		var tri: ConcavePolygonShape3D = cm.mesh.create_trimesh_shape()
+		tri.backface_collision = true
+		shape.shape = tri
 		body.add_child(shape)
 	add_child(body)
 	cs.free()
@@ -223,6 +225,22 @@ func _maybe_screenshot() -> void:
 			shot = a.substr(7)
 		elif a.begins_with("--spawn="):
 			spawn = int(a.substr(8))
+	var walk := -1.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--walk="):
+			walk = float(a.substr(7))
+	if walk > 0.0:
+		# physics check: walk straight ahead from the spawn point and log the path
+		_go(spawn)
+		player.move_vec = Vector2(0, -1)
+		var t := 0.0
+		while t < walk:
+			await get_tree().physics_frame
+			t += get_physics_process_delta_time()
+			if int(t * 60) % 60 == 0:
+				print("walk t=%.1f pos=%s floor=%s" % [t, player.global_position, player.is_on_floor()])
+		get_tree().quit()
+		return
 	if shot == "":
 		return
 	_go(spawn)
