@@ -280,6 +280,39 @@ def lightmap_uv(ob, size):
     ob.select_set(False)
 
 
+def collapse_slivers(ob, size, texel):
+    """Faces of (almost) no area get lightmap UV triangles of any size from the unwrap (their
+    scale is undefined), up to a third of the lightmap, lying over other faces' charts; the bake
+    then writes the sliver's (black) value over those texels. A face whose UV area is far beyond
+    its surface area at the texel size has its UVs collapsed to one point: it covers no texel (and
+    nothing on screen either). Returns the number of faces collapsed."""
+    me = ob.data
+    n = len(me.polygons)
+    if not n:
+        return 0
+    uv = np.empty(len(me.loops) * 2, np.float32)
+    me.uv_layers["Lightmap"].data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2).astype(np.float64) * size
+    ls = np.empty(n, np.int32)
+    me.polygons.foreach_get("loop_start", ls)
+    lt = np.empty(n, np.int32)
+    me.polygons.foreach_get("loop_total", lt)
+    ar = np.empty(n, np.float32)
+    me.polygons.foreach_get("area", ar)
+    poly = np.repeat(np.arange(n), lt)
+    li = np.arange(len(uv))
+    nxt = ls[poly] + (li - ls[poly] + 1) % lt[poly]
+    cross = uv[li, 0] * uv[nxt, 1] - uv[nxt, 0] * uv[li, 1]
+    uv_px = 0.5 * np.abs(np.add.reduceat(cross, ls))
+    bad = uv_px > 4.0 * ar / texel ** 2 + 4.0
+    if not bad.any():
+        return 0
+    sel = bad[poly]
+    uv[sel] = uv[ls[poly[sel]]]
+    me.uv_layers["Lightmap"].data.foreach_set("uv", (uv / size).astype(np.float32).ravel())
+    return int(bad.sum())
+
+
 def texel_sizes(me, size, layer="Lightmap"):
     """Per face: area and the texel size in metres along the face's coarsest direction
     (1 / smallest singular value of the surface -> lightmap pixel mapping)."""
@@ -1447,6 +1480,8 @@ def main():
                 chunks.append(c)
                 sizes[c.name] = s
     chunks.sort(key=lambda o: o.name)
+    slivers = {ob.name: collapse_slivers(ob, sizes[ob.name], a.texel) for ob in chunks}
+    log("sliver faces collapsed in the lightmap layout:", {k: v for k, v in slivers.items() if v})
     sigs = {ob.name: save_uv(ob, os.path.join(out, "uv")) for ob in chunks}
     q = {}
     for ob in chunks:
