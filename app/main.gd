@@ -235,6 +235,10 @@ func _load_station() -> void:
 		sky.sky_material = pm
 		env.sky = sky
 		env.background_mode = Environment.BG_SKY
+	if OS.get_cmdline_user_args().has("--holecolor"):
+		# desktop check: the background in pure magenta, so any hole in the model stands out
+		env.background_mode = Environment.BG_COLOR
+		env.background_color = Color(1, 0, 1)
 	# occlusion culling: chunks hidden behind big walls, floors and ceilings are not drawn
 	if FileAccess.file_exists("res://station/occluders.bin"):
 		var raw := FileAccess.get_file_as_bytes("res://station/occluders.bin").to_float32_array()
