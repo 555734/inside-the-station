@@ -695,11 +695,20 @@ def orient_faces(objs, wg, rays=512):
             f, b = front[:, off:off + n].sum(0), back[:, off:off + n].sum(0)
         twin = (b >= 3) & (f >= 3) & (np.minimum(f, b) >= 0.1 * np.maximum(f, b))
         flip = (b >= 3) & (b > f) & ~twin
-        out[ob.name] = {"flip": np.nonzero(flip)[0].tolist(), "twin": np.nonzero(twin)[0].tolist()}
         ar = np.empty(n, np.float32)
         ob.data.polygons.foreach_get("area", ar)
+        nrm = np.empty(n * 3, np.float32)
+        ob.data.polygons.foreach_get("normal", nrm)
+        # large horizontal faces no ray from any eye ever met, from either side: the underside of a
+        # floor slab or of the street's paving, the top of a ceiling slab. Never on screen, so no
+        # lightmap texels for them (the other face of the slab still stops the light in the bake)
+        seen = front[:, off:off + n].sum(0) + back[:, off:off + n].sum(0)
+        drop = (seen == 0) & (ar >= 2.0) & (np.abs(nrm.reshape(n, 3)[:, 2]) >= 0.98)
+        out[ob.name] = {"flip": np.nonzero(flip)[0].tolist(), "twin": np.nonzero(twin)[0].tolist(),
+                        "drop": np.nonzero(drop)[0].tolist()}
         log(f"{ob.name}: reversed {ar[flip].sum():.0f} m2 ({flip.sum()} faces), "
-            f"two-sided {ar[twin].sum():.0f} m2 ({twin.sum()} faces)")
+            f"two-sided {ar[twin].sum():.0f} m2 ({twin.sum()} faces), "
+            f"never seen and dropped {ar[drop].sum():.0f} m2 of {ar.sum():.0f} ({drop.sum()} faces)")
         mats = [m.name if m else "" for m in ob.data.materials]
         for fi in np.argsort(-ar * twin)[:5]:
             if twin[fi]:
@@ -718,6 +727,7 @@ def apply_orientation(ob, dec, gap=0.002):
     bm.from_mesh(me)
     bm.faces.ensure_lookup_table()
     tw = [bm.faces[i] for i in dec.get("twin", [])]
+    gone = [bm.faces[i] for i in dec.get("drop", [])]
     if dec.get("flip"):
         bmesh.ops.reverse_faces(bm, faces=[bm.faces[i] for i in dec["flip"]])
     if tw:
@@ -733,6 +743,9 @@ def apply_orientation(ob, dec, gap=0.002):
             m = sum(ns, ns[0] * 0)
             v.co -= m.normalized() * gap if m.length > 1e-9 else ns[0] * gap
         bmesh.ops.reverse_faces(bm, faces=new)
+    if gone:
+        bmesh.ops.delete(bm, geom=gone, context="FACES")
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
     bm.to_mesh(me)
     bm.free()
     me.update()
