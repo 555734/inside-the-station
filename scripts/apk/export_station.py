@@ -1274,7 +1274,10 @@ def load_uv(ob, d, sig):
     uv = np.zeros((len(cur), 2), np.float32)
     uv[ok] = suv[i[ok]]
     if not ok.all():
-        if "key2" not in z.files or (~ok).mean() > 0.01:
+        # positions that differ in the last digits between machines (cuts, street parts): every
+        # such corner must match at 1 cm, and a 1 cm key shared by several stored corners only
+        # if they all have the same UV (so the match cannot pick a wrong corner)
+        if "key2" not in z.files:
             return False
         o2 = np.argsort(z["key2"], kind="stable")
         s2, uv2 = z["key2"][o2], z["uv"][o2]
@@ -1282,6 +1285,10 @@ def load_uv(ob, d, sig):
         j = np.clip(np.searchsorted(s2, c2), 0, len(s2) - 1)
         if not (s2[j] == c2).all():
             return False
+        hi = np.searchsorted(s2, c2, side="right")
+        for a_, b_ in zip(j[hi - j > 1], hi[hi - j > 1]):
+            if np.abs(uv2[a_:b_] - uv2[a_]).max() > 1e-6:
+                return False
         uv[~ok] = uv2[j]
         log(f"{ob.name}: {int((~ok).sum())} corners matched at 1 cm")
     lm = me.uv_layers.new(name="Lightmap")
