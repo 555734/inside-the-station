@@ -1429,8 +1429,22 @@ def build_perimeter(M):
         near = ndimage.binary_dilation(mask(PLAN[wl]), iterations=4)
         inside = mask(PLAN[fl])
         for poly in PLAN[fl]:
-            ring = np.array(poly[0] + [poly[0][0]], float)
-            for a, b in zip(ring[:-1], ring[1:]):
+            raw = np.array(poly[0], float)
+            # the outline was traced from the map's pixels: a diagonal edge is a staircase of short
+            # steps; walls follow the straightened outline, each set back far enough that it
+            # covers every step of the traced edge (no floor gap shows in front of it)
+            keep = cv2.approxPolyDP(raw.astype(np.float32).reshape(-1, 1, 2), 0.25, True).reshape(-1, 2)
+            idx = []
+            for q in keep:
+                idx.append(int(np.argmin(np.sum((raw - q) ** 2, axis=1))))
+            if len(idx) < 3:
+                idx = list(range(len(raw)))
+            order = np.argsort(idx)
+            idx = [idx[o] for o in order]
+            for e in range(len(idx)):
+                ia, ib = idx[e], idx[(e + 1) % len(idx)]
+                a, b = raw[ia], raw[ib]
+                between = [raw[(ia + t) % len(raw)] for t in range(1, (ib - ia) % len(raw))]
                 L = float(np.linalg.norm(b - a))
                 if L < 0.05:
                     continue
@@ -1439,6 +1453,9 @@ def build_perimeter(M):
                 mid = (a + b) / 2 + nrm * 0.3
                 ix, iy = int((mid[0] - X0) / res), int((mid[1] - Y0) / res)
                 out = -nrm if (0 <= iy < H and 0 <= ix < W and inside[iy, ix]) else nrm
+                # how far the traced edge comes in from the straight line (towards the floor)
+                setback = max([0.0] + [float(-(pt - a) @ out) for pt in between])
+                off = 0.003 - (setback + 0.01 if setback > 0.0 else 0.0)
                 n = max(2, int(L / 0.2) + 1)
                 ts = np.linspace(0, 1, n)
                 free = []
@@ -1459,18 +1476,25 @@ def build_perimeter(M):
                         j += 1
                     p0, p1 = a + (b - a) * ts[i], a + (b - a) * ts[j]
                     if np.linalg.norm(p1 - p0) >= 0.4:
-                        # the whole outline, 3 mm outside it (a wall the map drew along the edge
+                        # set-back walls run on past the outline's corners by the set-back (no
+                        # notch where two of them meet at an inside corner)
+                        if off < 0.0:
+                            if i == 0:
+                                p0 = p0 - d * (0.003 - off)
+                            if j == n - 1:
+                                p1 = p1 + d * (0.003 - off)
+                        # the whole outline, just outside it (a wall the map drew along the edge
                         # stays in front, no coplanar faces), from under the floor slab to over the
                         # ceiling (no slit at either); counter-clockwise so prism() faces it outwards
                         ccw = (p1 - p0)[0] * out[1] - (p1 - p0)[1] * out[0] > 0
-                        e0, e1 = p0 + out * 0.003, p1 + out * 0.003
+                        e0, e1 = p0 + out * off, p1 + out * off
                         q = [tuple(e0), tuple(e1), tuple(e1 + out * 0.2), tuple(e0 + out * 0.2)]
                         if not ccw:
                             q = q[::-1]
                         prism(f"perim_{level}_{k}", [q], z0 - 0.4, z1 + 0.3, mat, level, uv_scale=2.4)
                         # skirting only where no wall of the map stands along the edge
                         if sum(bare[i:j + 1]) > (j - i + 1) / 2:
-                            q2 = [tuple(p0 - out * 0.012), tuple(p1 - out * 0.012), tuple(e1), tuple(e0)]
+                            q2 = [tuple(p0 + out * (off - 0.015)), tuple(p1 + out * (off - 0.015)), tuple(e1), tuple(e0)]
                             if not ccw:
                                 q2 = q2[::-1]
                             prism(f"perim_sk_{level}_{k}", [q2], z0, z0 + 0.1, M["steel_brushed"], level)

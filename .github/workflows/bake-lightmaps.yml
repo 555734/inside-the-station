@@ -38,7 +38,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.prep_run == ''
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -102,10 +102,10 @@ jobs:
           mv layout /tmp/layout
           python - <<'PY'
           import json, sys
-          want = json.load(open(".github/bake/request.json"))["layout"]
+          want = json.load(open(".github/bake/request.json")).get("layout")
           got = json.load(open("/tmp/layout/uv/index.json"))["layout_id"]
-          print("layout", got, "expected", want)
-          sys.exit(0 if got == want else 1)
+          print("layout", got, "expected", want or "(the one prepared in this run)")
+          sys.exit(0 if want in (None, got) else 1)
           PY
           # closure added since that layout was prepared (chunks it touches are laid out again,
           # the same way on every machine; expect_layout below confirms it)
