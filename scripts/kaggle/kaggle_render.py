@@ -168,7 +168,8 @@ def run(views, args):
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d)
     if views == ["__export__"]:
-        extra = f"--samples {args.samples} --texel {args.texel} --max-lm {args.max_lm} --max-tex {args.max_tex}"
+        extra = (f"--samples {args.samples} --texel {args.texel} --max-lm {args.max_lm} --max-tex {args.max_tex}"
+                 " --batch-px 3000000")              # each finished chunk is saved as it is done
         if args.no_cull:
             extra += " --no-cull"
     else:

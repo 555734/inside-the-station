@@ -14,7 +14,7 @@ permissions:
   contents: read
   actions: read
 env:
-  EXPORT_ARGS: --samples 128 --texel 0.03 --max-lm 2048 --max-tex 1024
+  EXPORT_ARGS: --samples 128 --texel 0.03 --max-lm 2048 --max-tex 1024 --batch-px 3000000
 
 jobs:
   plan:
@@ -158,9 +158,20 @@ jobs:
           done
           if [ -n "$WANT" ]; then
             grep " layout [0-9a-f]\{12\}" /tmp/export.log | tail -1
-            if ! grep -q " layout $WANT" /tmp/export.log; then echo "layout is not $WANT"; kill $PID 2>/dev/null || true; tail -40 /tmp/export.log; exit 1; fi
-            # every chunk must keep the prepared UVs (a chunk laid out again here would not match)
-            if ! grep -q "layouts reused, 0 chunks laid out anew" /tmp/export.log; then echo "some chunks were laid out again"; grep "laid out anew" /tmp/export.log; kill $PID 2>/dev/null || true; exit 1; fi
+            # (the whole layout's id may differ when chunks changed since; each of this runner's own
+            # chunks is checked below)
+            grep -q " layout $WANT" /tmp/export.log || echo "layout differs from $WANT (chunks changed since the prep)"
+            # the chunks this runner bakes must keep the prepared UVs (one laid out again here would not
+            # match); chunks changed since and baked elsewhere may be laid out anew
+            if ! python3 - <<'PY'
+          import re, sys
+          line = [l for l in open("/tmp/export.log") if "laid out anew" in l][-1]
+          anew = set(re.findall(r"'([^']+)'", line.split("laid out anew")[1]))
+          mine = set(open("/tmp/mine.txt").read().strip().split(","))
+          print("laid out anew:", sorted(anew), "of mine:", sorted(anew & mine))
+          sys.exit(1 if anew & mine else 0)
+          PY
+            then echo "some of this runner's chunks were laid out again"; kill $PID 2>/dev/null || true; exit 1; fi
           fi
           st=0; wait $PID || st=$?
           grep -v "^Info:" /tmp/export.log | tail -30
