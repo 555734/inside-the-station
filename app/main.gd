@@ -19,12 +19,14 @@ var env: Environment
 const EXPOSURE_IN := 0.55
 const EXPOSURE_OUT := 0.32
 const Z_STREET := 5.6
-var probes: Array[ReflectionProbe] = []
+var probe_data := []                 # every probe of the station: [position, size, origin offset]
+var probe_nodes := {}                # index -> ReflectionProbe, only for the nearest ones
 var probe_t := 0.0
-## The reflection atlas holds this many probes (project setting reflection_count); more probes in
-## view than slots crashes the renderer, so only the nearest ones are switched on.
+## The reflection atlas holds this many probes (project setting reflection_count). A probe keeps its
+## slot while it exists, hidden or not, and running out of slots crashes the renderer, so only the
+## nearest probes exist at any time (made when they come near, freed when they fall behind).
 const PROBE_SLOTS := 32
-const PROBES_ON := 26
+const PROBES_ON := 24
 
 
 func _ready() -> void:
@@ -227,19 +229,7 @@ func _load_station() -> void:
 	status.text = "読み込み中… 反射"
 	await get_tree().process_frame
 	for p in ([] if OS.get_cmdline_user_args().has("--noprobes") else meta["probes"]):
-		var rp := ReflectionProbe.new()
-		rp.position = _v(p["pos"])
-		rp.size = _v(p["size"])
-		rp.origin_offset = _v(p["origin"])
-		rp.box_projection = true
-		rp.interior = true
-		rp.update_mode = ReflectionProbe.UPDATE_ONCE
-		rp.ambient_mode = ReflectionProbe.AMBIENT_DISABLED
-		rp.enable_shadows = false
-		rp.blend_distance = 2.0
-		rp.visible = false
-		add_child(rp)
-		probes.append(rp)
+		probe_data.append([_v(p["pos"]), _v(p["size"]), _v(p["origin"])])
 	player = preload("res://player.gd").new()
 	add_child(player)
 	hud.player = player
@@ -377,22 +367,42 @@ func _process(d: float) -> void:
 		var target := lerpf(EXPOSURE_IN, EXPOSURE_OUT, t * t * (3.0 - 2.0 * t))
 		env.tonemap_exposure = lerpf(env.tonemap_exposure, target, clampf(d * 1.5, 0.0, 1.0))
 	probe_t -= d
-	if probe_t <= 0.0 and player and not probes.is_empty():
+	if probe_t <= 0.0 and player and not probe_data.is_empty():
 		probe_t = 0.25
 		_pick_probes()
 
 
 func _pick_probes() -> void:
-	# the probes whose boxes are nearest to the walker (0 inside the box) stay on
+	# the probes whose boxes are nearest to the walker (0 inside the box) exist, the rest do not
+	if probe_data.is_empty():
+		return
 	var eye := player.global_position
 	var ranked := []
-	for rp in probes:
-		var lo: Vector3 = rp.global_position - rp.size * 0.5
-		var hi: Vector3 = rp.global_position + rp.size * 0.5
-		var q := eye.clamp(lo, hi)
-		ranked.append([q.distance_squared_to(eye), rp])
+	for i in probe_data.size():
+		var c: Vector3 = probe_data[i][0]
+		var hs: Vector3 = probe_data[i][1] * 0.5
+		var q := eye.clamp(c - hs, c + hs)
+		ranked.append([q.distance_squared_to(eye), i])
 	ranked.sort_custom(func(a, b): return a[0] < b[0])
-	for i in ranked.size():
-		var on: bool = i < PROBES_ON
-		if ranked[i][1].visible != on:
-			ranked[i][1].visible = on
+	var want := {}
+	for j in mini(PROBES_ON, ranked.size()):
+		want[ranked[j][1]] = true
+	for i in probe_nodes.keys():
+		if not want.has(i):
+			probe_nodes[i].queue_free()
+			probe_nodes.erase(i)
+	for i in want.keys():
+		if probe_nodes.has(i):
+			continue
+		var rp := ReflectionProbe.new()
+		rp.position = probe_data[i][0]
+		rp.size = probe_data[i][1]
+		rp.origin_offset = probe_data[i][2]
+		rp.box_projection = true
+		rp.interior = true
+		rp.update_mode = ReflectionProbe.UPDATE_ONCE
+		rp.ambient_mode = ReflectionProbe.AMBIENT_DISABLED
+		rp.enable_shadows = false
+		rp.blend_distance = 2.0
+		add_child(rp)
+		probe_nodes[i] = rp
