@@ -645,8 +645,11 @@ def orient_faces(objs, wg, rays=512):
     eyes = walk_eyes(wg)
     tree = _bvh(objs)
     nf = [len(ob.data.polygons) for ob in objs]
-    front = np.zeros(sum(nf) + 16, np.int64)       # + the sky shell's faces (counted, then dropped)
-    back = np.zeros(sum(nf) + 16, np.int64)
+    # street faces are judged from street eyes only: before the closures exist, rays from below can
+    # get out through holes in the concourse ceiling and see the street from underneath
+    z_st = BU.UST.Z_ST - 0.5
+    front = np.zeros((2, sum(nf) + 16), np.int64)    # [underground, street] (+ the sky shell's faces)
+    back = np.zeros((2, sum(nf) + 16), np.int64)
     k = np.arange(rays) + 0.5
     zz = 1 - 2 * k / rays
     phi = k * math.pi * (3 - math.sqrt(5))
@@ -657,17 +660,21 @@ def orient_faces(objs, wg, rays=512):
         a = rng.uniform(0, 2 * math.pi)
         rot = np.array([[math.cos(a), -math.sin(a), 0], [math.sin(a), math.cos(a), 0], [0, 0, 1]])
         o = Vector(e)
+        lv = 1 if e[2] - 1.6 > z_st else 0
         for d in (base @ rot.T).tolist():
             dv = Vector(d)
             h = tree.ray_cast(o, dv, 300.0)
             if h[0] is not None:
                 if h[1].dot(dv) < 0:
-                    front[h[2]] += 1
+                    front[lv, h[2]] += 1
                 else:
-                    back[h[2]] += 1
+                    back[lv, h[2]] += 1
     out, off = {}, 0
     for ob, n in zip(objs, nf):
-        f, b = front[off:off + n], back[off:off + n]
+        if ob.name == "L_UP":
+            f, b = front[1, off:off + n], back[1, off:off + n]
+        else:
+            f, b = front[:, off:off + n].sum(0), back[:, off:off + n].sum(0)
         twin = (b >= 3) & (f >= 3) & (np.minimum(f, b) >= 0.1 * np.maximum(f, b))
         flip = (b >= 3) & (b > f) & ~twin
         out[ob.name] = {"flip": np.nonzero(flip)[0].tolist(), "twin": np.nonzero(twin)[0].tolist()}
@@ -1533,6 +1540,8 @@ def main():
                     help="drop faces that can never be seen (experimental: has dropped visible faces)")
     ap.add_argument("--no-cull", action="store_true", help="(default; kept for older command lines)")
     ap.add_argument("--layout-only", action="store_true", help="write the layouts (uv/) and stop")
+    ap.add_argument("--analysis-only", action="store_true",
+                    help="stop after orientation, closures and the void report; write analysis.json")
     ap.add_argument("--reverse", action="store_true", help="bake the chunks in reverse order")
     ap.add_argument("--no-bake", action="store_true", help="write the station data, bake nothing")
     ap.add_argument("--check-void", action="store_true", help="report how much empty space the walker can still see")
@@ -1588,6 +1597,11 @@ def main():
         col = ncol
     if a.check_void and wg is not None:
         void_report(list(levels.values()), wg)
+    if a.analysis_only:
+        json.dump({"close": close, "walk": wg, "orient_sizes": {k: {t: len(v) for t, v in d.items()} for k, d in orient.items()}},
+                  open(os.path.join(out, "analysis.json"), "w"))
+        log("analysis written", os.path.join(out, "analysis.json"))
+        return
     if a.cull and not a.no_cull:
         cull_hidden(list(levels.values()), col)
     grid = []
