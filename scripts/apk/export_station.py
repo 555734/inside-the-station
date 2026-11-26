@@ -1615,6 +1615,8 @@ def main():
                     help="stop after orientation, closures and the void report; write analysis.json")
     ap.add_argument("--reverse", action="store_true", help="bake the chunks in reverse order")
     ap.add_argument("--no-bake", action="store_true", help="write the station data, bake nothing")
+    ap.add_argument("--batch-px", type=float, default=17_000_000,
+                    help="lightmap pixels per bake call (small: each finished chunk is saved early)")
     ap.add_argument("--bake-changed", action="store_true",
                     help="with --uv-from: bake only the chunks laid out anew here (geometry changed since)")
     ap.add_argument("--check-void", action="store_true", help="report how much empty space the walker can still see")
@@ -1779,6 +1781,7 @@ def main():
     if a.no_bake:
         return
     col.hide_render = True                     # the walk ramps must not shade anything
+    globals()["BATCH_PX"] = int(a.batch_px)
     skip = set(x for x in a.skip.split(",") if x)
     if a.bake_changed:
         skip |= set(ob.name for ob in chunks) - set(changed)
