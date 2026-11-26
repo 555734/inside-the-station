@@ -289,7 +289,7 @@ def split_into_chunks(ob, level):
     me = ob.data
     bm = bmesh.new()
     bm.from_mesh(me)
-    for xs in np.arange(-200.0, 160.0, 20.0):
+    for xs in np.arange(-200.0, 240.0, 20.0):
         geom = list(bm.verts) + list(bm.edges) + list(bm.faces)
         bmesh.ops.bisect_plane(bm, geom=geom, dist=1e-5, plane_co=(xs, 0, 0), plane_no=(1, 0, 0))
     if level in ("B1", "UP"):
@@ -792,6 +792,7 @@ def find_openings(objs, wg):
                 caps.append((ix, iy, z, dx, dy))
     # an end wall continues along its edge as far as the floor edge runs (no slits between end
     # walls where a single cell's rays happened to hit something)
+    seeds = list(caps)
     capset = set(caps)
     grow = list(caps)
     while grow:
@@ -893,7 +894,8 @@ def find_openings(objs, wg):
     log(f"openings: {len(ceil)} ceiling cells ({len(ceil) * g * g:.0f} m2), {len(caps)} end-wall cells, "
         f"{len(bulk)} bulkhead cells")
     log(f"   {len(drops)} hanging-wall cells under floor edges")
-    return {"lo": lo, "grid": g, "ceil": ceil, "ceil2": ceil2, "caps": caps + drops, "bulk": bulk}
+    return {"lo": lo, "grid": g, "ceil": ceil, "ceil2": ceil2, "caps": caps + drops, "bulk": bulk,
+            "seeds": [[ix, iy, dx, dy, round(z, 3)] for ix, iy, z, dx, dy in seeds]}
 
 
 def void_report(objs, wg, rays=256):

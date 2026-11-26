@@ -43,11 +43,13 @@ Z_B2_CEIL = -2.2    # flat platform ceiling (3.6 m clear)
 Z_TRACK = Z_B2 - 1.1
 Z_SPRING = Z_B2 + 3.2   # arch springing line (top of the tiled track wall)
 Z_CROWN = Z_B2 + 8.05  # arch crown (rises into the B1 level, hence the void on the B1 map)
-X_MIN, X_MAX = -112.0, 133.0   # tunnel extent modelled beyond the platform ends
+X_MIN, X_MAX = -196.0, 216.0   # tunnel extent modelled beyond the platform ends (fades into the dark)
+B2_END = (-102.92, 130.78)      # ends of the platform level at its edges (map); the running tunnels go on from here
 
 COLL = {}
 RAMPS = []      # walkable ramps over stairs/escalators for the walkthrough app: (y0, y1, [(x, z), ...][, (ox, oy, angle)])
 EXIT_CUTS = []  # stairwell volumes of the exits (frame matrix, lo, hi), kept clear of concourse fittings
+EXIT_FILLS = []  # solid blocks beside stairwells (same form), also kept clear
 EXPORT = bool(os.environ.get("UMEDA_EXPORT"))   # app export: no procedural shader layers (not exportable)
 
 
@@ -646,25 +648,23 @@ def build_b2(M):
     px0, px1 = PLAN["plat_x"]
     for y, nrm, nm in ((ye, (0, 1, 0), "e"), (yw, (0, -1, 0), "w")):
         vrect(f"plat_edge_{nm}", (px0, y), (px1, y), Z_TRACK, Z_B2, M["concrete"], c, nrm)
-    vrect("tunnel_e", (X_MIN, te), (X_MAX, te), Z_TRACK, Z_B2_CEIL, M["track_tile"], c, (0, -1, 0), 2.16)
+    xw, xe = B2_END
+    vrect("tunnel_e", (xw, te), (xe, te), Z_TRACK, Z_B2_CEIL, M["track_tile"], c, (0, -1, 0), 2.16)
     # west wall: up to the arch springing under the vault, else to the flat ceiling
-    vrect("tunnel_w_n", (X_MIN, tw), (vx0, tw), Z_TRACK, Z_B2_CEIL, M["track_tile"], c, (0, 1, 0), 2.16)
+    vrect("tunnel_w_n", (xw, tw), (vx0, tw), Z_TRACK, Z_B2_CEIL, M["track_tile"], c, (0, 1, 0), 2.16)
     vrect("tunnel_w_v", (vx0, tw), (vx1, tw), Z_TRACK, Z_SPRING, M["track_tile"], c, (0, 1, 0), 2.16)
-    vrect("tunnel_w_s", (vx1, tw), (X_MAX, tw), Z_TRACK, Z_B2_CEIL, M["track_tile"], c, (0, 1, 0), 2.16)
-    rect("ceil_track_e_n", X_MIN, ye, px0, te, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
-    rect("ceil_track_w_n", X_MIN, tw, px0, yw, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
-    rect("ceil_track_e_s", px1, ye, X_MAX, te, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
-    rect("ceil_track_w_s", px1, tw, X_MAX, yw, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
+    vrect("tunnel_w_s", (vx1, tw), (xe, tw), Z_TRACK, Z_B2_CEIL, M["track_tile"], c, (0, 1, 0), 2.16)
+    rect("ceil_track_e_n", xw, ye, px0, te, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
+    rect("ceil_track_w_n", xw, tw, px0, yw, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
+    rect("ceil_track_e_s", px1, ye, xe, te, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
+    rect("ceil_track_w_s", px1, tw, xe, yw, Z_B2_CEIL, M["ceil_b2"], "B2_ceiling", False, 1.2)
     for yc, side, nm in ((ye + 1.85, 1, "e"), (yw - 1.75, -1, "w")):
         for g in (-0.7175, 0.7175):
             bx(f"rail_{nm}{g}", (X_MIN, yc + g - 0.035, Z_TRACK + 0.18), (X_MAX, yc + g + 0.035, Z_TRACK + 0.33), M["rail"], c)
         bx(f"slab_{nm}", (X_MIN, yc - 1.1, Z_TRACK), (X_MAX, yc + 1.1, Z_TRACK + 0.18), M["concrete"], c)
         y3 = yc + side * 1.45
         bx(f"third_{nm}", (X_MIN, y3 - 0.05, Z_TRACK + 0.2), (X_MAX, y3 + 0.05, Z_TRACK + 0.42), M["third_rail_cover"], c)
-    # tunnel portals beyond the platform: dark ends
-    for x, nm in ((X_MIN, "n"), (X_MAX, "s")):
-        vrect(f"tunnel_end_e_{nm}", (x, ye), (x, te), Z_TRACK, Z_B2_CEIL, M["concrete"], c, (1 if x < 0 else -1, 0, 0))
-        vrect(f"tunnel_end_w_{nm}", (x, tw), (x, yw), Z_TRACK, Z_B2_CEIL, M["concrete"], c, (1 if x < 0 else -1, 0, 0))
+    build_running_tunnels(M, ye, yw, te, tw)
     build_vault(M)
     floor_band(M)
     guide_lines(M)
@@ -672,6 +672,49 @@ def build_b2(M):
     build_tactile(M)
     build_b2_lights(M)
     build_b2_signs(M)
+
+
+def build_running_tunnels(M, ye, yw, te, tw):
+    """Beyond both platform ends the two tracks run on in their own tunnels: concrete walls on both
+    sides (the inner one is the back of the platform-end structure), a concrete roof, cable trays
+    and small lamps every 12 m that stop well before the modelled end, so the tunnel fades into
+    the dark instead of meeting a wall a few metres past the platform."""
+    c = "B2"
+    xw, xe = B2_END
+    k = 0
+    for (x0, x1, nm, far) in ((X_MIN, xw, "n", X_MIN), (xe, X_MAX, "s", X_MAX)):
+        for (y_in, y_out, sgn, tn) in ((ye, te, 1, "e"), (yw, tw, -1, "w")):
+            ylo, yhi = min(y_in, y_out), max(y_in, y_out)
+            vrect(f"rtun_out_{nm}{tn}", (x0, y_out), (x1, y_out), Z_TRACK, Z_B2_CEIL, M["concrete"], c, (0, -sgn, 0), 2.4)
+            vrect(f"rtun_in_{nm}{tn}", (x0, y_in), (x1, y_in), Z_TRACK, Z_B2_CEIL, M["concrete"], c, (0, sgn, 0), 2.4)
+            rect(f"rtun_roof_{nm}{tn}", x0, ylo, x1, yhi, Z_B2_CEIL + 0.003, M["concrete"], c, False, 2.4)
+            vrect(f"rtun_end_{nm}{tn}", (far, ylo), (far, yhi), Z_TRACK, Z_B2_CEIL, M["concrete"], c,
+                  (1 if far < 0 else -1, 0, 0), 2.4)
+            # cable trays along the outer wall
+            yt = y_out - sgn * 0.2
+            for zt in (Z_TRACK + 2.9, Z_TRACK + 3.25):
+                bx(f"rtun_tray_{nm}{tn}_{zt:.1f}", (x0, min(yt, y_out), zt), (x1, max(yt, y_out), zt + 0.06), M["steel"], c)
+            # lamps on the outer wall, from the platform end outwards, none in the last 30 m
+            near = x1 if nm == "n" else x0
+            step = -12.0 if nm == "n" else 12.0
+            xl = near + step / 2
+            while abs(xl - far) > 30.0:
+                yl = y_out - sgn * 0.08
+                bx(f"rtun_lamp_{k}", (xl - 0.3, min(yl, y_out), Z_TRACK + 2.35), (xl + 0.3, max(yl, y_out), Z_TRACK + 2.47), M["downlight"], c)
+                ob = B.area_light(f"rtunA_{k}", (xl, y_out - sgn * 0.2, Z_TRACK + 2.3), 0.5, 0.12, 18.0, (1.0, 0.93, 0.82), camera=False)
+                ob.data.spread = math.radians(160)
+                put(ob, "B2_lights")
+                k += 1
+                xl += step
+    # the corners between a platform-end wall and the tunnel's inner wall, closed to the platform
+    a = np.array(PLAN["b2_floor"][0][0])
+    for x_end, nrm in ((xw, (1, 0, 0)), (xe, (-1, 0, 0))):
+        at = a[np.abs(a[:, 0] - x_end) < 0.05]
+        if len(at):
+            for y0, y1, nm in ((at[:, 1].max() - 0.05, ye + 0.01, "e"), (yw - 0.01, at[:, 1].min() + 0.05, "w")):
+                vrect(f"rtun_corner_{x_end:.0f}{nm}", (x_end - nrm[0] * 0.01, y0), (x_end - nrm[0] * 0.01, y1),
+                      Z_TRACK, Z_B2_CEIL, M["wall_white"], c, nrm, 2.4)
+    print("tunnel lamps", k)
 
 
 def arch_profile(yw, ye, zs, zc, n=48):
@@ -1313,7 +1356,7 @@ def build_exits(M):
 
 
 def in_exit_cut(x, y, z):
-    for F, lo, hi in EXIT_CUTS:
+    for F, lo, hi in EXIT_CUTS + EXIT_FILLS:
         p = F.inverted() @ Vector((x, y, z))
         if lo[0] <= p.x <= hi[0] and lo[1] <= p.y <= hi[1] and lo[2] - 0.2 <= p.z <= hi[2]:
             return True
@@ -1351,8 +1394,8 @@ def _skip_perimeter(level, x, y):
     if level == "B1":
         for F, lo, hi in EXIT_CUTS:
             p = F.inverted() @ Vector((x, y, 0.0))
-            if -1.5 <= p.x <= hi[0] and lo[1] - 0.6 <= p.y <= hi[1] + 0.6:
-                return True                  # foot of an exit stair
+            if -1.5 <= p.x <= hi[0] and lo[1] <= p.y <= hi[1]:
+                return True                  # an exit stairwell (its own walls run down to the floor)
         V = PLAN["vault"]
         if V["x0"] - 0.6 < x < V["x1"] + 0.6 and V["y_west"] - 0.6 < y < V["y_east"] + 0.6:
             return True                      # the void over the arch (balustraded)
@@ -1360,8 +1403,8 @@ def _skip_perimeter(level, x, y):
             return True                      # carries on (build_continuation)
     else:
         e = PLAN["edges_y"]
-        if y > e["up"] - 0.7 or y < e["lo"] + 0.7:
-            return True                      # platform edges and track sides
+        if (y > e["up"] - 0.7 or y < e["lo"] + 0.7) and B2_END[0] + 0.3 < x < B2_END[1] - 0.3:
+            return True                      # platform edges and track sides (the end walls run to the corners)
     return False
 
 
@@ -1462,6 +1505,16 @@ def build_continuation(M):
     # signs on the way: hanging boards pointing on to the JR / Hankyu lines
     for x in (CONT_W - 4.0, CONT_W - 18.0):
         hang_sign(f"cont_sign_{x:.0f}", x, (ya + yb) / 2, M["exit_b1"], M["exit_b1"], c, w=4.2, h=0.62)
+    # backlit ads along both walls (as in the concourse corridor), on both sides of the gate line
+    for i, x in enumerate(np.arange(CONT_W - 3.75, xa + 3.0, -7.5)):
+        for y, right, nm in ((yb - 0.25, (1, 0, 0), "n"), (ya + 0.25, (-1, 0, 0), "s")):
+            ob = B.image_quad(f"cont_ad_{nm}_{i}", (x, y, Z_B1 + 1.55), right, (0, 0, 1), 2.6, 1.45, M[f"ad{(i + (nm == 's')) % 3}"])
+            put(ob, c)
+            bx(f"cont_adf_{nm}_{i}", (x - 1.36, y + 0.002 if nm == "n" else ya, Z_B1 + 0.78),
+               (x + 1.36, yb if nm == "n" else y - 0.002, Z_B1 + 2.32), M["steel"], c)
+    # tactile guide line from the concourse to the gate line
+    yt = 3.0                                  # between the column rows
+    bx("cont_tactile", (CONT_W_END + 1.2, yt - 0.15, Z_B1), (xb + 0.5, yt + 0.15, Z_B1 + 0.005), M["tactile_bar"], c)
 
 
 def build_fill_lights(M):

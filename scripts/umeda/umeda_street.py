@@ -138,6 +138,74 @@ SUN_STRENGTH = 2.8
 
 # ------------------------------------------------------------------ exits
 
+_MASKS = {}
+
+
+def _b1_masks(BU):
+    """Concourse floor and wall masks of the map (0.1 m), for the room beside a stairwell."""
+    if not _MASKS:
+        import cv2
+        res, X0, Y0 = 0.1, -150.0, -70.0
+        W, H = int(300 / res), int(140 / res)
+        for key in ("b1_floor", "b1_walls"):
+            m = np.zeros((H, W), np.uint8)
+            for poly in BU.PLAN[key]:
+                cv2.fillPoly(m, [np.array([[(x - X0) / res, (y - Y0) / res] for x, y in poly[0]], np.int32)], 1)
+            _MASKS[key] = m.astype(bool)
+        _MASKS["geo"] = (res, X0, Y0, W, H)
+    return _MASKS
+
+
+def _in_other_exit(BU, p, own_foot):
+    """Is plan point p inside the stairwell (with a margin) of an exit other than the one at own_foot?"""
+    for e in BU.PLAN["exits"].values():
+        u = np.array(e["up"], float)
+        u /= np.linalg.norm(u)
+        f = np.array(e["c"], float) - u * e["run"] / 2
+        if np.linalg.norm(f - own_foot) < 1e-6:
+            continue
+        w = float(np.clip(e["w"], 2.4, 7.2))
+        n = int(round((Z_ST - BU.Z_B1) / 0.17))
+        hx = n * 0.30 + 1.6 + 3.2
+        q = p - f
+        lx, ly = float(q @ u), float(q @ np.array((-u[1], u[0])))
+        if -0.8 <= lx <= hx + 0.5 and abs(ly) <= w / 2 + 0.8:
+            return True
+    return False
+
+
+def _side_fills(BU, foot, u, ya, yb, xa, xb, narrow=4.5):
+    """The map's exit passages are often wider than the stair built in them: beside the stairwell
+    a strip of concourse floor would run on as a blind alley under the concourse ceiling. Where
+    the floor beside a stairwell wall reaches no further than `narrow` m along the whole flight,
+    that strip is solid (a block out to the floor edge); wider floor there is open concourse and
+    stays. Returns (y_lo, y_hi) in the stair frame per side, or None."""
+    m = _b1_masks(BU)
+    res, X0, Y0, W, H = m["geo"]
+    v = np.array((-u[1], u[0]))
+    out = []
+    for side, y_edge in ((-1, ya), (1, yb)):
+        ext = []
+        for x in np.arange(xa + 0.6, xb - 0.3, 0.5):
+            d = 0.0
+            while d < narrow + 1.0:
+                p = foot + u * x + v * (y_edge + side * (d + 0.05))
+                ix, iy = int((p[0] - X0) / res), int((p[1] - Y0) / res)
+                if not (0 <= ix < W and 0 <= iy < H) or not m["b1_floor"][iy, ix] or m["b1_walls"][iy, ix]:
+                    break
+                if _in_other_exit(BU, p, foot):
+                    break
+                d += 0.1
+            ext.append(d)
+        e = max(ext) if ext else 0.0
+        if 0.15 < e <= narrow:
+            lo, hi = sorted((y_edge, y_edge + side * (e + 0.3)))
+            out.append((lo, hi))
+        else:
+            out.append((None, None))
+    return out
+
+
 def exit_stair(BU, B, M, k, e):
     """Stairwell from the concourse up to the street, in the exit's own frame."""
     c = np.array(e["c"], float)
@@ -173,11 +241,19 @@ def exit_stair(BU, B, M, k, e):
     ceil = np.array([max(BU.Z_B1 + BU.H_B1, nose(x) + 2.7) for x in xs])
     # the stairwell is roofed by the canopy where its ceiling would come out of the ground
     x_open = float(xs[np.argmax(ceil >= Z_ST - 0.05)])
-    # side walls: from below the steps up to the ceiling line (or the street where the canopy starts)
+    # side walls: from the concourse floor (the space under the flight is closed, not open to
+    # whatever floor the map has beside the stairwell) up to the ceiling line, or the street
+    # where the canopy starts; an end wall under the canopy floor
     for yy, nm in ((y0 - 0.15, "a"), (y1, "b")):
         top = [(x, min(cz, Z_ST)) for x, cz in zip(xs, ceil)] + [(hood_x1, Z_ST)]
-        bot = [(hood_x1, Z_ST - 0.35)] + [(x, nose(x) - 0.45) for x in xs[::-1]]
+        bot = [(hood_x1, BU.Z_B1), (float(xs[0]), BU.Z_B1)]
         BU.incline_prism(f"ex{k}_wall{nm}", top + bot, yy, yy + 0.15, M["wall_tile"], cname)
+    BU.bx(f"ex{k}_under_end", (hood_x1, y0 - 0.15, BU.Z_B1), (hood_x1 + 0.15, y1 + 0.15, Z_ST - 0.35), M["wall_tile"], cname)
+    fills = _side_fills(BU, foot, u, y0 - 0.15, y1 + 0.15, float(xs[0]), hood_x1 + 0.15)
+    for (ya_, yb_), nm in zip(fills, ("a", "b")):
+        if ya_ is not None:
+            BU.bx(f"ex{k}_fill{nm}", (float(xs[0]), ya_, BU.Z_B1), (hood_x1 + 0.15, yb_, BU.Z_B1 + BU.H_B1 + 0.04), M["b1_wall"], cname)
+            BU.EXIT_FILLS.append((_frame(foot, u), (float(xs[0]), ya_, BU.Z_B1), (hood_x1 + 0.15, yb_, BU.Z_B1 + BU.H_B1 + 0.04)))
     # sloping ceiling over the stair (up to the canopy) and its lights
     xc = [x for x in xs if x <= x_open]
     pts = [(x, max(BU.Z_B1 + BU.H_B1, nose(x) + 2.7)) for x in xc]
