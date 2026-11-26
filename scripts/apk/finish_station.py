@@ -80,7 +80,8 @@ def main():
         print(name, e.shape[1], "px", "denoised" if not a.no_denoise else "raw", flush=True)
         json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)
     # the unbaked far part of the avenue is lit like the baked street near by
-    up = [np.load(next(os.path.join(d, n + ".npz") for d in a.raw if os.path.exists(os.path.join(d, n + ".npz"))))["lm"]
+    # (every 4th texel each way is plenty for a median, and keeps the memory small)
+    up = [np.load(next(os.path.join(d, n + ".npz") for d in a.raw if os.path.exists(os.path.join(d, n + ".npz"))))["lm"][::4, ::4]
           for n in meta["lightmaps"] if n.startswith("UP_") and n not in missing]
     if up:
         v = np.concatenate([u.astype(np.float32).mean(-1).ravel() for u in up])
