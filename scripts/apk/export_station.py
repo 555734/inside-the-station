@@ -539,9 +539,12 @@ class _Sky:
     """Inward-facing shell over the street (from just below street level up): a ray that leaves
     the model into the open air hits it, so the sky does not count as a hole in the model."""
     def __init__(self):
+        # near enough that every sightline from the walkable area (checked to 400 m) meets it:
+        # a ray out of an exit canopy over the street is open air, not a hole to close
         z0 = BU.Z_B1 + 5.0
-        v = [(-900, -900, z0), (900, -900, z0), (900, 900, z0), (-900, 900, z0),
-             (-900, -900, 600), (900, -900, 600), (900, 900, 600), (-900, 900, 600)]
+        R, top = 300.0, 200.0
+        v = [(-R, -R, z0), (R, -R, z0), (R, R, z0), (-R, R, z0),
+             (-R, -R, top), (R, -R, top), (R, R, top), (-R, R, top)]
         f = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
         self.data = bpy.data.meshes.new("sky_shell")
         self.data.from_pydata(v, [], f)
