@@ -220,8 +220,9 @@ def exit_stair(BU, B, M, k, e):
     BU.RAMPS[nramps] = (y_a, y_b, rp, (float(foot[0]), float(foot[1]), math.atan2(u[1], u[0])))
     # what the stairwell and canopy must cut away: everything of the station above the concourse
     # ceiling inside the stairwell, and the pavement over the opening
-    x_s = float(xs[np.argmax(ceil > BU.Z_B1 + BU.H_B1 + 0.02)])
-    cut = (F, (x_s - 0.2, y0 - 0.14, BU.Z_B1 + BU.H_B1 - 0.05), (hood_x1, y1 + 0.14, Z_ST + H_HOOD))
+    # the whole stairwell, from just above the concourse floor: walls the map drew over the exit
+    # (some exits were vectorised as a solid block) and the concourse ceiling over the stair go
+    cut = (F, (-0.25, y0 - 0.14, BU.Z_B1 + 0.01), (hood_x1, y1 + 0.14, Z_ST + H_HOOD))
     hood = (F, x_open - 0.3, hood_x1 + 0.6, yh0 - 0.45, yh1 + 0.45)
     return cut, hood
 
