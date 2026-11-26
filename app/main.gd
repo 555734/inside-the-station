@@ -14,6 +14,17 @@ var status: Label
 var hud: Control
 var spawn_buttons: VBoxContainer
 var fps_label: Label
+var env: Environment
+## exposure underground and out in the street (the eye adapts on the way up the exit stairs)
+const EXPOSURE_IN := 0.55
+const EXPOSURE_OUT := 0.32
+const Z_STREET := 5.6
+var probes: Array[ReflectionProbe] = []
+var probe_t := 0.0
+## The reflection atlas holds this many probes (project setting reflection_count); more probes in
+## view than slots crashes the renderer, so only the nearest ones are switched on.
+const PROBE_SLOTS := 32
+const PROBES_ON := 26
 
 
 func _ready() -> void:
@@ -42,6 +53,7 @@ func _setup_env() -> void:
 	e.glow_hdr_threshold = 1.1
 	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	we.environment = e
+	env = e
 	add_child(we)
 
 
@@ -176,6 +188,29 @@ func _load_station() -> void:
 		if n % 8 == 0:
 			status.text = "読み込み中… %d / %d" % [n, meshes.size()]
 			await get_tree().process_frame
+	# the avenue beyond the walkable stretch (not baked): lit like the baked frontages near by
+	if ResourceLoader.exists("res://station/far.glb"):
+		var far: Node = load("res://station/far.glb").instantiate()
+		add_child(far)
+		var fe: float = float(meta.get("far_irradiance", 3.0))
+		var img := Image.create(1, 1, false, Image.FORMAT_RGB8)
+		var enc := sqrt(fe / (fe + 1.0))
+		img.fill(Color(enc, enc, enc))
+		var flm := ImageTexture.create_from_image(img)
+		var fms := []
+		_find_meshes(far, fms)
+		for mi in fms:
+			for s_ in mi.mesh.get_surface_count():
+				var sm: Material = mi.mesh.surface_get_material(s_)
+				mi.set_surface_override_material(s_, _material(sm.resource_name if sm != null else "", flm))
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if ResourceLoader.exists("res://station/sky.png"):
+		var sky := Sky.new()
+		var pm := PanoramaSkyMaterial.new()
+		pm.panorama = load("res://station/sky.png")
+		sky.sky_material = pm
+		env.sky = sky
+		env.background_mode = Environment.BG_SKY
 	# collision: walls, floors, ramps over stairs and escalators
 	var cs: Node = load("res://station/collision.glb").instantiate()
 	var cms := []
@@ -191,7 +226,7 @@ func _load_station() -> void:
 	cs.free()
 	status.text = "読み込み中… 反射"
 	await get_tree().process_frame
-	for p in meta["probes"]:
+	for p in ([] if OS.get_cmdline_user_args().has("--noprobes") else meta["probes"]):
 		var rp := ReflectionProbe.new()
 		rp.position = _v(p["pos"])
 		rp.size = _v(p["size"])
@@ -202,7 +237,9 @@ func _load_station() -> void:
 		rp.ambient_mode = ReflectionProbe.AMBIENT_DISABLED
 		rp.enable_shadows = false
 		rp.blend_distance = 2.0
+		rp.visible = false
 		add_child(rp)
+		probes.append(rp)
 	player = preload("res://player.gd").new()
 	add_child(player)
 	hud.player = player
@@ -249,9 +286,63 @@ func _maybe_screenshot() -> void:
 				print("walk t=%.1f pos=%s floor=%s" % [t, player.global_position, player.is_on_floor()])
 		get_tree().quit()
 		return
+	if OS.get_cmdline_user_args().has("--stats"):
+		# desktop check: what each spawn view costs (objects, draw calls, memory)
+		for i in meta["spawns"].size():
+			_go(i)
+			for k in 60:
+				await get_tree().process_frame
+			var P := Performance
+			print("STATS spawn %d objects %d draws %d prims %d | vmem %.0f MB tex %.0f MB buf %.0f MB | static %.0f MB" % [i,
+				P.get_monitor(P.RENDER_TOTAL_OBJECTS_IN_FRAME), P.get_monitor(P.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+				P.get_monitor(P.RENDER_TOTAL_PRIMITIVES_IN_FRAME), P.get_monitor(P.RENDER_VIDEO_MEM_USED) / 1048576.0,
+				P.get_monitor(P.RENDER_TEXTURE_MEM_USED) / 1048576.0, P.get_monitor(P.RENDER_BUFFER_MEM_USED) / 1048576.0,
+				P.get_monitor(P.MEMORY_STATIC) / 1048576.0])
+		get_tree().quit()
+		return
+	if OS.get_cmdline_user_args().has("--bench"):
+		# desktop check: average frame time at each spawn (relative numbers only)
+		for i in meta["spawns"].size():
+			_go(i)
+			for k in 30:
+				await get_tree().process_frame
+			var t0 := Time.get_ticks_usec()
+			for k in 40:
+				await get_tree().process_frame
+			print("BENCH spawn %d %.1f ms/frame" % [i, (Time.get_ticks_usec() - t0) / 40000.0])
+		get_tree().quit()
+		return
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shots="):
+			# desktop check: many views in one run; each line "x,y,z,heading,pitch,out.png" (Blender coords)
+			spawn_buttons.visible = false
+			_go(0)
+			for line in FileAccess.get_file_as_string(a.substr(8)).split("\n"):
+				var f := line.split(",")
+				if f.size() < 6:
+					continue
+				player.global_position = Vector3(float(f[0]), float(f[2]), -float(f[1]))
+				player.yaw = deg_to_rad(float(f[3]) - 90.0)
+				player.pitch = deg_to_rad(float(f[4]))
+				player.rotation = Vector3(0, player.yaw, 0)
+				player.cam.rotation = Vector3(player.pitch, 0, 0)
+				player.velocity = Vector3.ZERO
+				_pick_probes()
+				for k in 6:
+					await get_tree().process_frame
+					player.global_position = Vector3(float(f[0]), float(f[2]), -float(f[1]))
+				get_viewport().get_texture().get_image().save_png(f[5].strip_edges())
+			get_tree().quit()
+			return
 	if shot == "":
 		return
 	_go(spawn)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--at="):
+			# --at=x,y,z,heading in Blender coordinates (metres, heading in degrees from +x)
+			var v := a.substr(5).split_floats(",")
+			player.global_position = Vector3(v[0], v[2], -v[1])
+			player.yaw = deg_to_rad(v[3] - 90.0)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--yawoff="):
 			player.yaw += deg_to_rad(float(a.substr(9)))
@@ -270,12 +361,38 @@ func _maybe_screenshot() -> void:
 func _go(i: int) -> void:
 	var s: Dictionary = meta["spawns"][i]
 	player.place(_v(s["pos"]), _v(s["fwd"]))
+	_pick_probes()
 
 
 func respawn() -> void:
 	_go(0)
 
 
-func _process(_d: float) -> void:
+func _process(d: float) -> void:
 	if fps_label:
 		fps_label.text = "%d fps" % Engine.get_frames_per_second()
+	if player and env:
+		# eye adaptation: from the concourse exposure at the foot of an exit stair to the street one
+		var t := clampf((player.global_position.y - 1.5) / (Z_STREET - 1.5), 0.0, 1.0)
+		var target := lerpf(EXPOSURE_IN, EXPOSURE_OUT, t * t * (3.0 - 2.0 * t))
+		env.tonemap_exposure = lerpf(env.tonemap_exposure, target, clampf(d * 1.5, 0.0, 1.0))
+	probe_t -= d
+	if probe_t <= 0.0 and player and not probes.is_empty():
+		probe_t = 0.25
+		_pick_probes()
+
+
+func _pick_probes() -> void:
+	# the probes whose boxes are nearest to the walker (0 inside the box) stay on
+	var eye := player.global_position
+	var ranked := []
+	for rp in probes:
+		var lo: Vector3 = rp.global_position - rp.size * 0.5
+		var hi: Vector3 = rp.global_position + rp.size * 0.5
+		var q := eye.clamp(lo, hi)
+		ranked.append([q.distance_squared_to(eye), rp])
+	ranked.sort_custom(func(a, b): return a[0] < b[0])
+	for i in ranked.size():
+		var on: bool = i < PROBES_ON
+		if ranked[i][1].visible != on:
+			ranked[i][1].visible = on

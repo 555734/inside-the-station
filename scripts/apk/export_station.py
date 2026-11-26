@@ -74,10 +74,11 @@ def build(gpu):
     BU.build_b2(M)
     BU.build_stairs(M)
     BU.build_gates(M)
-    BU.build_exits(M)
     BU.build_details(M)
     BU.UP.build(BU, M)
+    BU.build_exits(M)
     BU.build_b1_lights(M)
+    BU.build_fill_lights(M)
     log("scene built", len(bpy.data.objects), "objects")
     return M
 
@@ -85,6 +86,10 @@ def build(gpu):
 def level_of(ob):
     names = [c.name for c in ob.users_collection]
     for n in names:
+        if n == "Street_far":
+            return "FAR"
+        if n.startswith("Street"):
+            return "UP"
         if n.startswith("Stairs"):
             return "ST"
         if n.startswith("B1"):
@@ -97,7 +102,7 @@ def level_of(ob):
 
 def is_collider(ob):
     names = [c.name for c in ob.users_collection]
-    if any(n.endswith("_ceiling") or n.endswith("_lights") or n == "Vault" for n in names):
+    if any(n.endswith("_ceiling") or n.endswith("_lights") or n in ("Vault", "Street_far") for n in names):
         return False
     # stair treads stay solid too; the ramps laid over them make them walkable
     return True
@@ -106,7 +111,7 @@ def is_collider(ob):
 def baked_meshes():
     """Real, world-space copies of every mesh object (modifiers applied), grouped by level."""
     dg = bpy.context.evaluated_depsgraph_get()
-    groups = {"B1": [], "B2": [], "ST": []}
+    groups = {"B1": [], "B2": [], "ST": [], "UP": [], "FAR": []}
     coll = []
     for ob in list(bpy.data.objects):
         if ob.type != "MESH" or not ob.data.polygons:
@@ -185,12 +190,49 @@ def join_meshes(name, meshes, link=True):
     return ob
 
 
+def sky_panorama(path, w=2048):
+    """The street's sky as an equirectangular image for the app's background (world only)."""
+    sc = bpy.context.scene
+    keep = (sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage, sc.camera,
+            sc.cycles.samples, sc.render.filepath, sc.render.image_settings.file_format)
+    hidden = [o for o in sc.objects if o.type in ("MESH", "LIGHT") and not o.hide_render]
+    for o in hidden:
+        o.hide_render = True
+    cd = bpy.data.cameras.new("skycam")
+    cd.type = "PANO"
+    try:
+        cd.panorama_type = "EQUIRECTANGULAR"
+    except (AttributeError, TypeError):
+        cd.cycles.panorama_type = "EQUIRECTANGULAR"
+    co = bpy.data.objects.new("skycam", cd)
+    sc.collection.objects.link(co)
+    co.location = (0, 0, BU.UST.Z_ST + 1.6)
+    co.rotation_euler = (math.radians(90), 0, math.radians(-90))
+    sc.camera = co
+    sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage = w, w // 2, 100
+    sc.cycles.samples = 16
+    sc.render.image_settings.file_format = "PNG"
+    sc.render.filepath = path
+    bpy.ops.render.render(write_still=True)
+    for o in hidden:
+        o.hide_render = False
+    bpy.data.objects.remove(co)
+    (sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage, sc.camera,
+     sc.cycles.samples, sc.render.filepath, sc.render.image_settings.file_format) = keep
+
+
 def ramps_mesh():
     verts, faces = [], []
-    for (y0, y1, path) in BU.RAMPS:
+    for ramp in BU.RAMPS:
+        y0, y1, path = ramp[:3]
+        ox, oy, ang = ramp[3] if len(ramp) > 3 else (0.0, 0.0, 0.0)
+        ca, sa = math.cos(ang), math.sin(ang)
+
+        def w(x, y, z):          # ramp frame -> world (exit stairs run in their own direction)
+            return (ox + ca * x - sa * y, oy + sa * x + ca * y, z)
         for (xa, za), (xb, zb) in zip(path[:-1], path[1:]):
             k = len(verts)
-            verts += [(xa, y0, za + 0.01), (xb, y0, zb + 0.01), (xb, y1, zb + 0.01), (xa, y1, za + 0.01)]
+            verts += [w(xa, y0, za + 0.01), w(xb, y0, zb + 0.01), w(xb, y1, zb + 0.01), w(xa, y1, za + 0.01)]
             # face up whichever way the stair runs (collision is one-sided)
             faces.append((k, k + 1, k + 2, k + 3) if (xb - xa) * (y1 - y0) > 0 else (k + 3, k + 2, k + 1, k))
     me = bpy.data.meshes.new("ramps")
@@ -203,7 +245,7 @@ def ramps_mesh():
 
 def chunk_key(level, x, y):
     cx = int(math.floor((x + 140.0) / 20.0))
-    cy = int(math.floor((y + 60.0) / 30.0)) if level == "B1" else 0
+    cy = int(math.floor((y + 60.0) / 30.0)) if level in ("B1", "UP") else 0
     return f"{level}_{cx:02d}_{cy}"
 
 
@@ -215,7 +257,7 @@ def split_into_chunks(ob, level):
     for xs in np.arange(-140.0, 160.0, 20.0):
         geom = list(bm.verts) + list(bm.edges) + list(bm.faces)
         bmesh.ops.bisect_plane(bm, geom=geom, dist=1e-5, plane_co=(xs, 0, 0), plane_no=(1, 0, 0))
-    if level == "B1":
+    if level in ("B1", "UP"):
         for ys in np.arange(-60.0, 70.0, 30.0):
             geom = list(bm.verts) + list(bm.edges) + list(bm.faces)
             bmesh.ops.bisect_plane(bm, geom=geom, dist=1e-5, plane_co=(0, ys, 0), plane_no=(0, 1, 0))
@@ -455,9 +497,23 @@ def layout_chunk(ob, texel, max_lm, splits, depth=0):
 
 # ------------------------------------------------------------------ face orientation
 
-def _bvh(objs):
+class _Sky:
+    """Inward-facing shell over the street (from just below street level up): a ray that leaves
+    the model into the open air hits it, so the sky does not count as a hole in the model."""
+    def __init__(self):
+        z0 = BU.Z_B1 + 5.0
+        v = [(-900, -900, z0), (900, -900, z0), (900, 900, z0), (-900, 900, z0),
+             (-900, -900, 600), (900, -900, 600), (900, 900, 600), (-900, 900, 600)]
+        f = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+        self.data = bpy.data.meshes.new("sky_shell")
+        self.data.from_pydata(v, [], f)
+        self.data.update()
+
+
+def _bvh(objs, sky=True):
     from mathutils.bvhtree import BVHTree
     verts, polys, off = [], [], 0
+    objs = list(objs) + ([_Sky()] if sky and any(o.name.startswith("L_UP") for o in objs) else [])
     for ob in objs:
         me = ob.data
         co = np.empty(len(me.vertices) * 3, np.float32)
@@ -648,6 +704,9 @@ def find_openings(objs, wg):
     for ix, iy, z in wg["nodes"]:
         x, y = lo[0] + ix * g, lo[1] + iy * g
         eye = (x, y, z + 1.6)
+        if z > BU.UST.Z_ST - 0.5:
+            tops[(ix, iy, z)] = z + 3.0
+            continue                       # out in the street: open sky is what should be there
         h = _front_hit(tree, eye, up, 8.0)
         if h is None:
             top = (BU.Z_B1 + BU.H_B1) if z <= BU.Z_B1 + 0.3 else z + 3.0
@@ -1346,6 +1405,8 @@ def describe_materials(used, out_dir, max_tex):
 # ------------------------------------------------------------------ app metadata
 
 def app_meta():
+    from mathutils import Vector
+    UST = BU.UST
     P = BU.PLAN
     Z2, Z1 = BU.Z_B2, BU.Z_B1
 
@@ -1377,11 +1438,33 @@ def app_meta():
             probes.append({"pos": g(c), "size": [ext[0] * 2, ext[2] * 2, ext[1] * 2],
                            "origin": [0, -(1.7 - (ztop - Z2) / 2), 0]})
     import cv2
-    walk = [np.array(p[0], np.float32).reshape(-1, 1, 2) for p in P["b1_walk"]]
-    for x in np.arange(-135, 135, 15.0):
-        for y in np.arange(-45, 45, 15.0):
-            if any(cv2.pointPolygonTest(w, (float(x), float(y)), False) >= 0 for w in walk):
+    # the whole concourse floor (side corridors included), and the platform level beyond the
+    # platform ends
+    b1 = [np.array(p[0], np.float32).reshape(-1, 1, 2) for p in P["b1_floor"]]
+    b2 = [np.array(p[0], np.float32).reshape(-1, 1, 2) for p in P["b2_floor"]]
+    for x in np.arange(-135, 136, 15.0):
+        for y in np.arange(-45, 46, 15.0):
+            if any(cv2.pointPolygonTest(w, (float(x), float(y)), False) >= 0 for w in b1):
                 probes.append({"pos": g((x, y, Z1 + 1.6)), "size": [15.0, 3.6, 15.0], "origin": [0, -0.1, 0]})
+            if (x < px0 or x > px1) and any(cv2.pointPolygonTest(w, (float(x), float(y)), False) >= 0 for w in b2):
+                probes.append({"pos": g((x, y, Z2 + 1.7)), "size": [15.0, 3.6, 15.0], "origin": [0, -0.1, 0]})
+    # exit stairwells: two boxes along each (axis-aligned around the stair's run)
+    for F, lo, hi in BU.EXIT_CUTS:
+        for f0, f1 in ((0.0, 0.5), (0.5, 1.0)):
+            xa, xb = -1.0 + (hi[0] + 1.0) * f0, -1.0 + (hi[0] + 1.0) * f1
+            pts = [F @ Vector((x_, y_, z_)) for x_ in (xa, xb) for y_ in (lo[1], hi[1])
+                   for z_ in (Z1 + 0.2 + (UST.Z_ST * f0), Z1 + 3.2 + UST.Z_ST * f1)]
+            mn = Vector([min(p_[i] for p_ in pts) for i in range(3)])
+            mx = Vector([max(p_[i] for p_ in pts) for i in range(3)])
+            c = (mn + mx) / 2
+            probes.append({"pos": g(tuple(c)), "size": [mx.x - mn.x, mx.z - mn.z, mx.y - mn.y], "origin": [0, 0, 0]})
+    # the street: along both pavements
+    fs, fn = UST.FRONT_Y
+    ys, yn = UST.STREET_Y
+    for x in np.arange(UST.WALK_X[0] + 10, UST.WALK_X[1], 20.0):
+        for ya, yb in ((fs, ys), (yn, fn)):
+            probes.append({"pos": g((x, (ya + yb) / 2, UST.Z_ST + 3.0)), "size": [20.0, 8.0, yb - ya],
+                           "origin": [0, -1.4, 0]})
     return {"spawns": spawns, "probes": probes, "exposure": 0.55}
 
 
@@ -1425,8 +1508,15 @@ def main():
     bpy.context.view_layer.update()
     log("originals removed")
     levels = {}
+    far = None
     for level, meshes in groups.items():
-        if meshes:
+        if meshes and level == "FAR":
+            # the avenue beyond the walkable stretch: seen, never reached; not baked (the app lights
+            # it like the baked frontages near by)
+            far = join_meshes("far", meshes)
+            far.data.uv_layers.new(name="Lightmap")
+            log("far scenery faces", len(far.data.polygons))
+        elif meshes:
             levels[level] = join_meshes(f"L_{level}", meshes)
             log(level, "faces", len(levels[level].data.polygons))
     old = json.load(open(os.path.join(a.uv_from, "index.json"))) if a.uv_from else None
@@ -1512,6 +1602,13 @@ def main():
             m = ob.data.materials[i]
             if m is not None:
                 used[m.name] = m
+    if far is not None:
+        idx = np.zeros(len(far.data.polygons), np.int32)
+        far.data.polygons.foreach_get("material_index", idx)
+        for i in set(idx.tolist()):
+            m = far.data.materials[i]
+            if m is not None:
+                used[m.name] = m
     table = describe_materials(list(used.values()), out, a.max_tex)
     json.dump(table, open(os.path.join(out, "materials.json"), "w"), ensure_ascii=False, indent=1)
     log("materials", len(table))
@@ -1534,6 +1631,9 @@ def main():
         bpy.ops.export_scene.gltf(filepath=path, **kw)
 
     export(chunks, os.path.join(out, "station.glb"))
+    if far is not None:
+        export([far], os.path.join(out, "far.glb"))
+        sky_panorama(os.path.join(out, "sky.png"))
     export([col], os.path.join(out, "collision.glb"), mats=False)
     meta = app_meta()
     meta["lightmaps"] = {ob.name: {"file": f"lightmaps/{ob.name}.png"} for ob in chunks}

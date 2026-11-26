@@ -52,6 +52,13 @@ def main():
         info["p99"] = save_lightmap(e, dst)
         print(name, e.shape[1], "px", "denoised" if not a.no_denoise else "raw", flush=True)
         json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)
+    # the unbaked far part of the avenue is lit like the baked street near by
+    up = [np.load(next(os.path.join(d, n + ".npz") for d in a.raw if os.path.exists(os.path.join(d, n + ".npz"))))["lm"]
+          for n in meta["lightmaps"] if n.startswith("UP_") and n not in missing]
+    if up:
+        v = np.concatenate([u.astype(np.float32).mean(-1).ravel() for u in up])
+        v = v[v > 1e-4]
+        meta["far_irradiance"] = float(np.median(v)) if v.size else 3.0
     json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)
     if missing:
         print("no raw lightmap yet for", len(missing), "chunks:", ",".join(missing))

@@ -29,6 +29,7 @@ import umeda_gfx as UG   # noqa: E402
 import umeda_vault as UV  # noqa: E402
 import umeda_surface as US  # noqa: E402
 import umeda_props as UP  # noqa: E402
+import umeda_street as UST  # noqa: E402
 from scipy import ndimage  # noqa: E402
 
 ROOT = os.path.join(HERE, "..", "..")
@@ -45,7 +46,8 @@ Z_CROWN = Z_B2 + 8.05  # arch crown (rises into the B1 level, hence the void on 
 X_MIN, X_MAX = -112.0, 133.0   # tunnel extent modelled beyond the platform ends
 
 COLL = {}
-RAMPS = []      # walkable ramps over stairs/escalators for the walkthrough app: (y0, y1, [(x, z), ...])
+RAMPS = []      # walkable ramps over stairs/escalators for the walkthrough app: (y0, y1, [(x, z), ...][, (ox, oy, angle)])
+EXIT_CUTS = []  # stairwell volumes of the exits (frame matrix, lo, hi), kept clear of concourse fittings
 EXPORT = bool(os.environ.get("UMEDA_EXPORT"))   # app export: no procedural shader layers (not exportable)
 
 
@@ -435,6 +437,7 @@ def materials():
     M["esc_clad"] = B.plain("esc_clad", (0.55, 0.54, 0.52), 0.3, metal=0.6)
     M["esc_step"] = panels("esc_step", 0.008, 0.40, 0.003, (0.30, 0.30, 0.31), (0.08, 0.08, 0.08), 0.35, N=1024, size=0.4, seed=21)
     M["handrail"] = B.plain("handrail", (0.015, 0.015, 0.017), 0.25)
+    M["handrail_steel"] = B.plain("handrail_steel", (0.78, 0.78, 0.77), 0.22, metal=1.0)
     M["parapet"] = panels("parapet", 1.2, 0.6, 0.004, (0.42, 0.41, 0.39), (0.2, 0.2, 0.2), 0.3, seed=23)
     M["portal"] = B.plain("portal", (0.012, 0.012, 0.014), 0.12, coat=0.6)
     M["portal_sign"] = B.printed("portal_sign", gfx["portal_sign"], rough=0.3, coat=0.0, emission=1.4)
@@ -989,18 +992,67 @@ def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, low
         z = z_step
     path += [(x, z), (x + sgn * 0.3, z)]
     RAMPS.append((y0, y1, path))
-    # handrails (sides + centre)
-    for yy in (y0 + 0.08, (y0 + y1) / 2, y1 - 0.08):
-        p0 = Vector((x_top, yy, z_top + 0.85))
-        p1 = Vector((x_bot, yy, z_bot + 0.85))
-        d = p1 - p0
-        ob = B.cylinder(f"{name}_hr{yy:.1f}", ((p0.x + p1.x) / 2, yy, (p0.z + p1.z) / 2), 0.022, d.length, M["steel"], axis="X")
-        ang = math.atan2(-(p1.z - p0.z), abs(p1.x - p0.x)) * (1 if sgn > 0 else -1)
-        for v in ob.data.vertices:
-            v.co -= Vector(((p0.x + p1.x) / 2, yy, (p0.z + p1.z) / 2))
-        ob.location = ((p0.x + p1.x) / 2, yy, (p0.z + p1.z) / 2)
-        ob.rotation_euler = (0, ang, 0)
-        put(ob, cname)
+    # handrails (sides + centre): they follow the flight (0.85 m over the nosings, level over the
+    # landing, 0.3 m level run-outs at both ends); side rails sit on wall brackets, the centre rail
+    # on posts standing on the treads
+    rail_path = [(px_, pz + 0.85) for (px_, pz) in path]
+
+    def tread_z(xq):
+        """Top of the tread (or landing) under x."""
+        zq = z_top
+        for (xa_, za_), (xb_, zb_) in zip(path[:-1], path[1:]):
+            lo_, hi_ = sorted((xa_, xb_))
+            if lo_ - 1e-6 <= xq <= hi_ + 1e-6:
+                if abs(zb_ - za_) < 1e-6:
+                    return za_
+                tq = (xq - xa_) / (xb_ - xa_)
+                zl = za_ + tq * (zb_ - za_)
+                # stepped: the tread under x is the step below the nosing line
+                k_ = math.floor((zl - z_bot) / riser + 1e-6)
+                return z_bot + k_ * riser
+        return zq
+
+    for yy, kind in ((y0 + 0.08, "wall"), ((y0 + y1) / 2, "post"), (y1 - 0.08, "wall")):
+        tube_rail(f"{name}_hr{yy:.1f}", [(px_, yy, pz) for (px_, pz) in rail_path], 0.02, M["handrail_steel"], cname)
+        length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(rail_path[:-1], rail_path[1:]))
+        step = 1.5 if kind == "post" else 1.2
+        nsup = max(2, int(length / step) + 1)
+        for j in range(nsup):
+            # support points spread evenly along the rail (by length)
+            target = 0.15 + (length - 0.3) * j / (nsup - 1)
+            acc = 0.0
+            for a, b in zip(rail_path[:-1], rail_path[1:]):
+                seg = math.hypot(b[0] - a[0], b[1] - a[1])
+                if acc + seg >= target:
+                    tq = (target - acc) / seg
+                    xq, zq = a[0] + tq * (b[0] - a[0]), a[1] + tq * (b[1] - a[1])
+                    break
+                acc += seg
+            if kind == "post":
+                zt = tread_z(xq)
+                put(B.cylinder(f"{name}_post{j}", (xq, yy, (zt + zq) / 2), 0.022, zq - zt, M["handrail_steel"], segs=12), cname)
+                put(B.cylinder(f"{name}_base{j}", (xq, yy, zt + 0.004), 0.06, 0.008, M["handrail_steel"], segs=16), cname)
+            else:
+                yw = y0 - 0.0 if yy < (y0 + y1) / 2 else y1
+                ya_, yb_ = sorted((yw, yy))
+                bx(f"{name}_br{yy:.1f}_{j}", (xq - 0.012, ya_, zq - 0.075), (xq + 0.012, yb_, zq - 0.055), M["handrail_steel"], cname)
+                bx(f"{name}_brv{yy:.1f}_{j}", (xq - 0.008, yy - 0.008, zq - 0.075), (xq + 0.008, yy + 0.008, zq - 0.018), M["handrail_steel"], cname)
+                plate_y = (yw, yw + 0.01) if yy > yw else (yw - 0.01, yw)
+                bx(f"{name}_brp{yy:.1f}_{j}", (xq - 0.04, plate_y[0], zq - 0.11), (xq + 0.04, plate_y[1], zq - 0.02), M["handrail_steel"], cname)
+
+
+def tube_rail(name, pts, r, mat, cname):
+    """Round rail along a polyline, with ball joints at the bends and end caps turned down."""
+    for i, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
+        if math.dist(a, b) < 1e-4:
+            continue
+        slope_rail(f"{name}_{i}", a, b, r, mat, cname)
+    for i, p in enumerate(pts):
+        put(B.sphere(f"{name}_j{i}", p, r, mat, segs=12), cname)
+    # ends bent down by 0.1 m (no open tube ends)
+    for i, p in ((0, pts[0]), (1, pts[-1])):
+        slope_rail(f"{name}_end{i}", p, (p[0], p[1], p[2] - 0.1), r, mat, cname)
+        put(B.sphere(f"{name}_endb{i}", (p[0], p[1], p[2] - 0.1), r, mat, segs=12), cname)
 
 
 def build_stairs(M):
@@ -1254,22 +1306,16 @@ def build_gates(M):
 
 
 def build_exits(M):
-    for k, e in PLAN["exits"].items():
-        c = Vector((e["c"][0], e["c"][1], 0))
-        u = Vector((e["up"][0], e["up"][1], 0))
-        run, w = e["run"], e["w"]
-        rise = min(5.5, run * 0.55)
-        n = max(4, int(rise / 0.17))
-        ang = math.atan2(u.y, u.x)
-        for i in range(n):
-            p = c + u * (-run / 2 + (i + 0.5) * run / n)
-            h = (i + 1) * rise / n
-            ob = B.box(f"ex{k}_{i}", (0, 0, 0), (run / n, w, h), M["stair"])
-            for v in ob.data.vertices:
-                v.co.z += h / 2
-            ob.location = (p.x, p.y, Z_B1)
-            ob.rotation_euler = (0, 0, ang)
-            put(ob, "B1")
+    """Exit stairwells up to the street and the street itself (umeda_street)."""
+    UST.build(sys.modules[__name__], M)
+
+
+def in_exit_cut(x, y, z):
+    for F, lo, hi in EXIT_CUTS:
+        p = F.inverted() @ Vector((x, y, z))
+        if lo[0] <= p.x <= hi[0] and lo[1] <= p.y <= hi[1] and lo[2] - 0.2 <= p.z <= hi[2]:
+            return True
+    return False
 
 
 def build_b1_lights(M):
@@ -1284,7 +1330,7 @@ def build_b1_lights(M):
         for y in ys:
             if cr["x0"] < x < cr["x1"] and cr["y_s"] < y < cr["y_n"]:
                 continue        # the vaulted corridor has its own light rings
-            if any(cv2.pointPolygonTest(r, (float(x), float(y)), False) >= 0 for r in walk):
+            if any(cv2.pointPolygonTest(r, (float(x), float(y)), False) >= 0 for r in walk) and not in_exit_cut(x, y, H_B1):
                 put(B.cylinder(f"b1dl_{k}", (x, y, H_B1 - 0.004), 0.09, 0.01, M["downlight"], segs=20), "B1_lights")
                 put(B.cylinder(f"b1dlr_{k}", (x, y, H_B1 - 0.002), 0.11, 0.006, M["steel"], segs=20), "B1_lights")
                 ob = B.area_light(f"b1A_{k}", (x, y, H_B1 - 0.02), 0.2, 0.2, 85.0, (1.0, 0.96, 0.9), camera=False)
@@ -1292,6 +1338,57 @@ def build_b1_lights(M):
                 put(ob, "B1_lights")
                 k += 1
     print("B1 lights", k)
+
+
+def build_fill_lights(M):
+    """Light every floor the walker can reach. On the 3 m downlight grid, wherever there is floor
+    at a level with a ceiling over it and no light within 3.2 m (side corridors, platform ends,
+    rooms in the island structure, exit passages), a downlight goes on that ceiling."""
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    verts, tris, off = [], [], 0
+    for ob in bpy.data.objects:
+        if ob.type != "MESH" or not ob.data.polygons:
+            continue
+        if any(c.name.endswith("_lights") for c in ob.users_collection):
+            continue
+        eo = ob.evaluated_get(dg)
+        me = eo.to_mesh()
+        me.calc_loop_triangles()
+        n = len(me.vertices)
+        co = np.empty(n * 3, np.float64)
+        me.vertices.foreach_get("co", co)
+        mw = np.array(ob.matrix_world)
+        co = co.reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+        t = np.empty(len(me.loop_triangles) * 3, np.int32)
+        me.loop_triangles.foreach_get("vertices", t)
+        verts.append(co)
+        tris.append(t.reshape(-1, 3) + off)
+        off += n
+        eo.to_mesh_clear()
+    tree = BVHTree.FromPolygons(np.vstack(verts).tolist(), np.vstack(tris).tolist())
+    lights = [ob.matrix_world.translation.copy() for ob in bpy.data.objects if ob.type == "LIGHT"]
+    k = 0
+    for z0, cname in ((Z_B1, "B1_lights"), (Z_B2, "B2_lights")):
+        for x in np.arange(-140, 140, 3.0):
+            for y in np.arange(-50, 50, 3.0):
+                f = tree.ray_cast(Vector((x, y, z0 + 1.0)), Vector((0, 0, -1)), 1.3)
+                if f[0] is None or f[1].z < 0.7 or abs(f[0].z - z0) > 0.25:
+                    continue
+                c = tree.ray_cast(f[0] + Vector((0, 0, 0.05)), Vector((0, 0, 1)), 8.0)
+                if c[0] is None or c[1].z > -0.5 or not 2.1 < c[0].z - f[0].z < 7.0:
+                    continue
+                zc = c[0].z
+                if any((L.x - x) ** 2 + (L.y - y) ** 2 < 3.2 ** 2 and abs(L.z - zc) < 2.0 for L in lights):
+                    continue
+                put(B.cylinder(f"filldl_{k}", (x, y, zc - 0.004), 0.09, 0.01, M["downlight"], segs=20), cname)
+                put(B.cylinder(f"filldlr_{k}", (x, y, zc - 0.002), 0.11, 0.006, M["steel"], segs=20), cname)
+                ob = B.area_light(f"fillA_{k}", (x, y, zc - 0.02), 0.2, 0.2, 85.0, (1.0, 0.96, 0.9), camera=False)
+                ob.data.spread = math.radians(150)
+                put(ob, cname)
+                lights.append(Vector((x, y, zc - 0.02)))
+                k += 1
+    print("fill lights", k)
 
 
 def build_details(M):
@@ -1491,11 +1588,12 @@ def main():
     build_b2(M)
     build_stairs(M)
     build_gates(M)
-    build_exits(M)
     build_details(M)
     UP.build(sys.modules[__name__], M)
+    build_exits(M)
     if args.view not in ("top", "overview"):
         build_b1_lights(M)
+        build_fill_lights(M)
     build_camera(args.view, args)
     if args.cam:
         x, y, z, pitch, yaw, lens = [float(v) for v in args.cam.split(",")]
