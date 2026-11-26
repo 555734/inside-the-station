@@ -1286,10 +1286,35 @@ def load_uv(ob, d, sig):
         if not (s2[j] == c2).all():
             return False
         hi = np.searchsorted(s2, c2, side="right")
-        for a_, b_ in zip(j[hi - j > 1], hi[hi - j > 1]):
-            if np.abs(uv2[a_:b_] - uv2[a_]).max() > 1e-6:
-                return False
-        uv[~ok] = uv2[j]
+        pick = uv2[j].copy()
+        amb = np.nonzero((hi - j > 1) & np.array([np.abs(uv2[a_:b_] - uv2[a_]).max() > 1e-6 if b_ - a_ > 1 else False
+                                                    for a_, b_ in zip(j, hi)], bool))[0]
+        if len(amb):
+            # a 1 cm key several stored corners share (tiny parts): the one whose UV lies with the
+            # face's other corners (corners of a face sit together in one chart)
+            nl, npoly = len(me.loops), len(me.polygons)
+            ls = np.empty(npoly, np.int32)
+            me.polygons.foreach_get("loop_start", ls)
+            lt = np.empty(npoly, np.int32)
+            me.polygons.foreach_get("loop_total", lt)
+            poly = np.repeat(np.arange(npoly), lt)
+            idx_bad = np.nonzero(~ok)[0]
+            sure = ok.copy()
+            uvf = uv.copy()
+            single = np.ones(len(idx_bad), bool)
+            single[amb] = False
+            sure[idx_bad[single]] = True
+            uvf[idx_bad[single]] = pick[single]
+            for q in amb:
+                li = idx_bad[q]
+                f = poly[li]
+                mates = [m for m in range(ls[f], ls[f] + lt[f]) if m != li and sure[m]]
+                if not mates:
+                    return False
+                ref = uvf[mates].mean(0)
+                cand = uv2[j[q]:hi[q]]
+                pick[q] = cand[np.argmin(np.abs(cand - ref).sum(1))]
+        uv[~ok] = pick
         log(f"{ob.name}: {int((~ok).sum())} corners matched at 1 cm")
     lm = me.uv_layers.new(name="Lightmap")
     lm.data.foreach_set("uv", uv.ravel())
