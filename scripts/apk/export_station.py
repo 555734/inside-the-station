@@ -443,7 +443,9 @@ def texel_sizes(me, size, layer="Lightmap"):
 
 def texel_quantile(me, size, q=LM_QUANTILE):
     ar, tex = texel_sizes(me, size)
-    m = ar > 1e-6
+    # faces the unwrap gave no extent (slivers whose UVs came out collinear) do not count: they
+    # cover nothing and collapse_slivers() takes their UVs away
+    m = (ar > 1e-6) & np.isfinite(tex)
     if not m.any():
         return 0.0
     o = np.argsort(tex[m])
