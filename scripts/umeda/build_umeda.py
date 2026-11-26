@@ -493,8 +493,10 @@ def build_b1(M):
             prism(f"b1_colsk_{i}", poly, Z_B1, Z_B1 + 0.15, M["steel_brushed"], c)
         else:
             prism(f"b1_wall_{i}", poly, Z_B1, Z_B1 + H_B1 + 1.1, M["b1_wall"], c, uv_scale=2.4)
+    # the ceiling outline was taken from the floor's, stair openings and all: the concourse ceiling
+    # runs on over the stairs (only the outer ring)
     for i, poly in enumerate(PLAN["b1_ceiling"]):
-        prism(f"b1_ceil_{i}", poly, Z_B1 + H_B1, Z_B1 + H_B1 + 0.05, M["ceil"], "B1_ceiling", uv_scale=1.2)
+        prism(f"b1_ceil_{i}", poly[:1], Z_B1 + H_B1, Z_B1 + H_B1 + 0.05, M["ceil"], "B1_ceiling", uv_scale=1.2)
     build_b1_corridor(M)
     # hanging signs over the gate lines
     names = {"北改札": "gate_n", "中北西改札": "gate_nw", "中北東改札": "gate_ne", "南改札": "gate_s"}

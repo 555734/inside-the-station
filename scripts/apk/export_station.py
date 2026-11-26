@@ -599,6 +599,19 @@ def walk_grid(col, grid=0.5):
         d = Vector((dx, dy, 0)).normalized()
         return any(ct.ray_cast(Vector((x, y, z + hz)), d, math.hypot(dx, dy))[0] is not None for hz in (0.45, 0.8, 1.2))
 
+    dirs8 = [Vector((math.cos(a), math.sin(a), 0)) for a in np.arange(8) * math.pi / 4]
+    clear_memo = {}
+
+    def clear(ix, iy, k):
+        """The walker (0.25 m radius) can stand here: nothing within 0.2 m around at knee and chest
+        height (a lattice point on a wall's face, or behind it, is not a place to stand)."""
+        key = (ix, iy, k)
+        if key not in clear_memo:
+            x, y, z = lo[0] + ix * grid, lo[1] + iy * grid, floors[(ix, iy)][k]
+            clear_memo[key] = not any(ct.ray_cast(Vector((x, y, z + hz)), d, 0.2)[0] is not None
+                                      for hz in (0.45, 1.2) for d in dirs8)
+        return clear_memo[key]
+
     seeds = []
     for sp in app_meta()["spawns"]:
         p = sp["pos"]
@@ -618,7 +631,8 @@ def walk_grid(col, grid=0.5):
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             for k2, z2 in enumerate(floors.get((ix + dx, iy + dy), [])):
                 key = (ix + dx, iy + dy, k2)
-                if key in seen or abs(z2 - z) > 0.4 or blocked(x, y, max(z, z2), dx * grid, dy * grid):
+                if key in seen or abs(z2 - z) > 0.4 or blocked(x, y, max(z, z2), dx * grid, dy * grid) \
+                        or not clear(*key):
                     continue
                 seen.add(key)
                 stack.append(key)
