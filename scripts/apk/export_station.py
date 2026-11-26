@@ -1357,7 +1357,8 @@ def app_meta():
     spawns = [
         {"name": "2番線 アーチ", "pos": g((88.5, -1.6, Z2)), "fwd": fwd(105)},
         {"name": "1番線", "pos": g((82.5, 12.6, Z2)), "fwd": fwd(94)},
-        {"name": "J階段", "pos": g((P["stairs"]["J"]["x_top"] + 1.2, -7.6, Z1)), "fwd": fwd(90)},
+        # left of the centre handrail (the stair is 4.2 m wide), so walking ahead goes down the stairs
+        {"name": "J階段", "pos": g((P["stairs"]["J"]["x_top"] + 1.2, -8.65, Z1)), "fwd": fwd(90)},
         {"name": "北改札内 通路", "pos": g((st["x_top"] - 6.0, -5.2, Z1)), "fwd": fwd(-90)},
         {"name": "北改札", "pos": g((-132.6, -4.8, Z1)), "fwd": fwd(-116)},
     ]
