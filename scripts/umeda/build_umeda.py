@@ -1544,11 +1544,17 @@ def build_continuation(M):
 def build_fill_lights(M):
     """Light every floor the walker can reach. On the 3 m downlight grid, wherever there is floor
     at a level with a ceiling over it and no light within 3.2 m (side corridors, platform ends,
-    rooms in the island structure, exit passages), a downlight goes on that ceiling."""
+    rooms in the island structure, exit passages), a downlight goes on that ceiling.
+    Every grid point is decided on its own (against the lights placed before, never against the
+    fill lights themselves; a checkerboard keeps fill lights apart) and only from rays that start
+    in open space: a point inside a wall or block standing on the floor is found by horizontal
+    rays and left out (a vertical ray from inside one meets the floor and the block's own bottom
+    face in the same plane, and which of them the ray reports changed from run to run, so the
+    lights - and with them the lightmap layouts - differed between machines)."""
     from mathutils.bvhtree import BVHTree
     dg = bpy.context.evaluated_depsgraph_get()
     verts, tris, off = [], [], 0
-    for ob in bpy.data.objects:
+    for ob in sorted(bpy.data.objects, key=lambda o: o.name):
         if ob.type != "MESH" or not ob.data.polygons:
             continue
         if any(c.name.endswith("_lights") for c in ob.users_collection):
@@ -1568,26 +1574,40 @@ def build_fill_lights(M):
         off += n
         eo.to_mesh_clear()
     tree = BVHTree.FromPolygons(np.vstack(verts).tolist(), np.vstack(tris).tolist())
-    lights = [ob.matrix_world.translation.copy() for ob in bpy.data.objects if ob.type == "LIGHT"]
+    before = [ob.matrix_world.translation.copy() for ob in bpy.data.objects if ob.type == "LIGHT"]
+    horiz = [Vector((1, 0, 0)), Vector((-1, 0, 0)), Vector((0, 1, 0)), Vector((0, -1, 0)),
+             Vector((0.7071, 0.7071, 0)), Vector((-0.7071, 0.7071, 0)), Vector((0.7071, -0.7071, 0)), Vector((-0.7071, -0.7071, 0))]
+
+    def open_space(p):
+        for d in horiz:
+            h = tree.ray_cast(p, d, 6.0)
+            if h[0] is not None and h[1].dot(d) > 0.0:
+                return False                  # the first surface is seen from behind: inside a solid
+        return True
+
     k = 0
     for z0, cname in ((Z_B1, "B1_lights"), (Z_B2, "B2_lights")):
-        for x in np.arange(-185, 140, 3.0):
-            for y in np.arange(-50, 50, 3.0):
-                f = tree.ray_cast(Vector((x, y, z0 + 1.0)), Vector((0, 0, -1)), 1.3)
+        for i, x in enumerate(np.arange(-185, 140, 3.0)):
+            for j, y in enumerate(np.arange(-50, 50, 3.0)):
+                if (i + j) % 2:
+                    continue
+                p = Vector((float(x), float(y), z0 + 1.2))
+                if not open_space(p):
+                    continue
+                f = tree.ray_cast(p, Vector((0, 0, -1)), 1.5)
                 if f[0] is None or f[1].z < 0.7 or abs(f[0].z - z0) > 0.25:
                     continue
-                c = tree.ray_cast(f[0] + Vector((0, 0, 0.05)), Vector((0, 0, 1)), 8.0)
+                c = tree.ray_cast(p, Vector((0, 0, 1)), 8.0)
                 if c[0] is None or c[1].z > -0.5 or not 2.1 < c[0].z - f[0].z < 7.0:
                     continue
-                zc = c[0].z
-                if any((L.x - x) ** 2 + (L.y - y) ** 2 < 3.2 ** 2 and abs(L.z - zc) < 2.0 for L in lights):
+                zc = round(c[0].z, 3)
+                if any((L.x - x) ** 2 + (L.y - y) ** 2 < 3.2 ** 2 and abs(L.z - zc) < 2.0 for L in before):
                     continue
                 put(B.cylinder(f"filldl_{k}", (x, y, zc - 0.004), 0.09, 0.01, M["downlight"], segs=20), cname)
                 put(B.cylinder(f"filldlr_{k}", (x, y, zc - 0.002), 0.11, 0.006, M["steel"], segs=20), cname)
                 ob = B.area_light(f"fillA_{k}", (x, y, zc - 0.02), 0.2, 0.2, 85.0, (1.0, 0.96, 0.9), camera=False)
                 ob.data.spread = math.radians(150)
                 put(ob, cname)
-                lights.append(Vector((x, y, zc - 0.02)))
                 k += 1
     print("fill lights", k)
 
