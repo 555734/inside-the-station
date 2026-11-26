@@ -132,8 +132,8 @@ def _sky_world():
 
 # outdoor light, kept a few times brighter than the concourse rather than the real 100x, so one
 # exposure shows both (the app adapts its exposure a little on top)
-SKY_STRENGTH = 0.05
-SUN_STRENGTH = 1.2
+SKY_STRENGTH = 0.12
+SUN_STRENGTH = 2.8
 
 
 # ------------------------------------------------------------------ exits
@@ -326,6 +326,7 @@ def street(BU, B, M, hoods):
                 k += 1
     # guard rails along both kerbs over the walkable stretch (white pipe rails)
     c = "Street"
+    _furniture(BU, B, M, hoods, c)
     for yy, side in ((ys - 0.45, -1), (yn + 0.45, 1)):
         x = wx0
         k = 0
@@ -376,15 +377,38 @@ def _pavement(BU, B, M, name, x0, x1, ya, yb, z, hoods, c):
 
 
 def _ginkgo(BU, B, M, name, x, y, z, c, seed):
+    """Street ginkgo: straight trunk, an upright narrow crown (a tall ellipsoid with a few lobes)."""
     rng = np.random.default_rng(seed)
-    h = float(rng.uniform(7.0, 9.5))
-    BU.put(B.cylinder(name + "_trunk", (x, y, z + h * 0.35), 0.17, h * 0.7, M["bark"], segs=10), c)
+    h = float(rng.uniform(7.5, 10.0))
+    BU.put(B.cylinder(name + "_trunk", (x, y, z + h * 0.32), 0.16, h * 0.64, M["bark"], segs=10), c)
     BU.bx(name + "_pit", (x - 0.7, y - 0.7, z - 0.02), (x + 0.7, y + 0.7, z + 0.01), M["kerb"], c)
-    # ginkgo crowns are narrow cones of foliage
-    for i in range(4):
-        r = (1.9 - i * 0.35) * float(rng.uniform(0.9, 1.1))
-        BU.put(B.sphere(f"{name}_crown{i}", (x + rng.uniform(-0.3, 0.3), y + rng.uniform(-0.3, 0.3), z + h * (0.45 + i * 0.17)),
-                        r, M["ginkgo"], scale=(1, 1, 1.25), segs=12), c)
+    r = float(rng.uniform(1.6, 2.0))
+    BU.put(B.sphere(name + "_crown", (x, y, z + h * 0.6), r, M["ginkgo"], scale=(1.0, 1.0, h * 0.42 / r), segs=14), c)
+    for i in range(3):
+        a = rng.uniform(0, 2 * math.pi)
+        rr = r * float(rng.uniform(0.45, 0.6))
+        zz = z + h * float(rng.uniform(0.45, 0.8))
+        BU.put(B.sphere(f"{name}_lobe{i}", (x + math.cos(a) * r * 0.6, y + math.sin(a) * r * 0.6, zz), rr, M["ginkgo"],
+                        scale=(1, 1, 1.3), segs=10), c)
+
+
+def _furniture(BU, B, M, hoods, c):
+    """Planters with clipped shrubs and benches on the wide south pavement, over the walkable stretch."""
+    ys = STREET_Y[0]
+    fs = FRONT_Y[0]
+    rows = [ys - 9.0, (fs + ys) / 2 - 4.0]
+    k = 0
+    for yr in rows:
+        x = WALK_X[0] + 12.0
+        while x < WALK_X[1] - 12.0:
+            if not _near_hood(x, yr, hoods, 4.0):
+                BU.bx(f"planter_{k}", (x - 2.0, yr - 0.6, Z_ST), (x + 2.0, yr + 0.6, Z_ST + 0.5), M["kerb"], c)
+                BU.bx(f"shrub_{k}", (x - 1.9, yr - 0.5, Z_ST + 0.5), (x + 1.9, yr + 0.5, Z_ST + 0.95), M["ginkgo"], c, 0.15)
+                BU.bx(f"bench_{k}", (x - 0.9, yr + 1.2, Z_ST + 0.38), (x + 0.9, yr + 1.6, Z_ST + 0.45), M["bark"], c, 0.01)
+                for bxp in (-0.75, 0.75):
+                    BU.bx(f"benchleg_{k}_{bxp}", (x + bxp - 0.03, yr + 1.25, Z_ST), (x + bxp + 0.03, yr + 1.55, Z_ST + 0.38), M["pole_grey"], c)
+                k += 1
+            x += 24.0
 
 
 def _street_lamp(BU, B, M, name, x, y, z, toward, c):
