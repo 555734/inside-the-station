@@ -27,6 +27,7 @@ var probe_t := 0.0
 ## nearest probes exist at any time (made when they come near, freed when they fall behind).
 const PROBE_SLOTS := 32
 const PROBES_ON := 24
+const PROBES_KEEP := 30
 
 
 func _ready() -> void:
@@ -400,11 +401,17 @@ func _pick_probes() -> void:
 		var q := eye.clamp(c - hs, c + hs)
 		ranked.append([q.distance_squared_to(eye), i])
 	ranked.sort_custom(func(a, b): return a[0] < b[0])
+	# a probe that exists stays while it is among the nearest PROBES_KEEP (each new probe renders
+	# the station six times, so walking along does not keep making and dropping the same ones);
+	# new ones are made for the nearest PROBES_ON. At most PROBES_KEEP exist (< PROBE_SLOTS).
+	var keep := {}
+	for j in mini(PROBES_KEEP, ranked.size()):
+		keep[ranked[j][1]] = true
 	var want := {}
 	for j in mini(PROBES_ON, ranked.size()):
 		want[ranked[j][1]] = true
 	for i in probe_nodes.keys():
-		if not want.has(i):
+		if not keep.has(i):
 			probe_nodes[i].queue_free()
 			probe_nodes.erase(i)
 	for i in want.keys():
