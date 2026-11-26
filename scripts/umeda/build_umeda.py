@@ -1231,7 +1231,7 @@ def build_gates(M):
     IC reader, yellow flap doors, green arrow / red cross indicators at both ends; black fascia band
     with the gate name above the north gate line."""
     k = 0
-    unpaid_minus = {"北改札": True, "中北東改札": True, "中北西改札": False, "南改札": False}
+    unpaid_minus = {"北改札": True, "中北東改札": True, "中北西改札": False, "南改札": False, "連絡改札": False}
     for name, pl in PLAN["gates"].items():
         pts = [Vector((p[0], p[1], 0)) for p in pl]
         for a, b in zip(pts[:-1], pts[1:]):
@@ -1340,6 +1340,115 @@ def build_b1_lights(M):
     print("B1 lights", k)
 
 
+CONT_W = -132.4      # the concourse carries on west of the map (towards the JR / Hankyu stations)
+CONT_W_END = -162.0  # where it reaches the gate line of the next station
+CONT_W_Y = (-21.575, 19.144)
+
+
+def _skip_perimeter(level, x, y):
+    if level == "B1":
+        for F, lo, hi in EXIT_CUTS:
+            p = F.inverted() @ Vector((x, y, 0.0))
+            if -1.5 <= p.x <= hi[0] and lo[1] - 0.6 <= p.y <= hi[1] + 0.6:
+                return True                  # foot of an exit stair
+        V = PLAN["vault"]
+        if V["x0"] - 0.6 < x < V["x1"] + 0.6 and V["y_west"] - 0.6 < y < V["y_east"] + 0.6:
+            return True                      # the void over the arch (balustraded)
+        if x < CONT_W + 0.3 and CONT_W_Y[0] - 0.3 < y < CONT_W_Y[1] + 0.3:
+            return True                      # carries on (build_continuation)
+    else:
+        e = PLAN["edges_y"]
+        if y > e["up"] - 0.7 or y < e["lo"] + 0.7:
+            return True                      # platform edges and track sides
+    return False
+
+
+def build_perimeter(M):
+    """Outer walls of the concourse and the platform level along the floor outline wherever the
+    map draws no wall (the vectorised walls are partitions and rooms, not the outline), so the
+    station ends in proper walls instead of the model just stopping."""
+    import cv2
+    from scipy import ndimage
+    res = 0.1
+    X0, Y0 = -150.0, -70.0
+    W, H = int(300 / res), int(140 / res)
+
+    def mask(polys):
+        m = np.zeros((H, W), np.uint8)
+        for poly in polys:
+            cv2.fillPoly(m, [np.array([[(x - X0) / res, (y - Y0) / res] for x, y in poly[0]], np.int32)], 1)
+        return m.astype(bool)
+    k = 0
+    for level, fl, wl, z0, z1, mat in (("B1", "b1_floor", "b1_walls", Z_B1, Z_B1 + H_B1 + 0.04, M["b1_wall"]),
+                                       ("B2", "b2_floor", "b2_walls", Z_B2, Z_B2_CEIL + 0.04, M["wall_white"])):
+        near = ndimage.binary_dilation(mask(PLAN[wl]), iterations=4)
+        inside = mask(PLAN[fl])
+        for poly in PLAN[fl]:
+            ring = np.array(poly[0] + [poly[0][0]], float)
+            for a, b in zip(ring[:-1], ring[1:]):
+                L = float(np.linalg.norm(b - a))
+                if L < 0.05:
+                    continue
+                d = (b - a) / L
+                nrm = np.array((-d[1], d[0]))
+                mid = (a + b) / 2 + nrm * 0.3
+                ix, iy = int((mid[0] - X0) / res), int((mid[1] - Y0) / res)
+                out = -nrm if (0 <= iy < H and 0 <= ix < W and inside[iy, ix]) else nrm
+                n = max(2, int(L / 0.2) + 1)
+                ts = np.linspace(0, 1, n)
+                free = []
+                for t in ts:
+                    p = a + (b - a) * t
+                    ix, iy = int((p[0] - X0) / res), int((p[1] - Y0) / res)
+                    cov = 0 <= iy < H and 0 <= ix < W and near[iy, ix]
+                    free.append(not cov and not _skip_perimeter(level, p[0], p[1]))
+                i = 0
+                while i < n:
+                    if not free[i]:
+                        i += 1
+                        continue
+                    j = i
+                    while j + 1 < n and free[j + 1]:
+                        j += 1
+                    p0, p1 = a + (b - a) * ts[i], a + (b - a) * ts[j]
+                    if np.linalg.norm(p1 - p0) >= 0.4:
+                        q = [tuple(p0), tuple(p1), tuple(p1 + out * 0.2), tuple(p0 + out * 0.2)]
+                        prism(f"perim_{level}_{k}", [q], z0, z1, mat, level, uv_scale=2.4)
+                        q2 = [tuple(p0 - out * 0.012), tuple(p1 - out * 0.012), tuple(p1), tuple(p0)]
+                        prism(f"perim_sk_{level}_{k}", [q2], z0, z0 + 0.1, M["steel_brushed"], level)
+                        k += 1
+                    i = j + 1
+    print("perimeter walls", k)
+
+
+def build_continuation(M):
+    """West of the map the concourse goes on towards the JR and Hankyu stations: the same floor,
+    ceiling, columns and walls for another 30 m, to the gate line of the next station (its gates
+    are shut to the walker; the hall beyond is seen through them)."""
+    c = "B1"
+    ya, yb = CONT_W_Y
+    xa, xb = CONT_W_END - 22.0, CONT_W + 0.05
+    poly = [[(xa, ya), (xb, ya), (xb, yb), (xa, yb)]]
+    prism("cont_floor", poly, Z_B1 - 0.35, Z_B1, M["b1_floor"], c, uv_scale=2.4)
+    prism("cont_ceil", poly, Z_B1 + H_B1, Z_B1 + H_B1 + 0.05, M["ceil"], "B1_ceiling", uv_scale=1.2)
+    for yy, nm in ((ya - 0.2, "s"), (yb, "n")):
+        bx(f"cont_wall_{nm}", (xa, yy, Z_B1), (xb, yy + 0.2, Z_B1 + H_B1 + 0.04), M["b1_wall"], c)
+        bx(f"cont_sk_{nm}", (xa, yy + (0.19 if nm == "s" else -0.002), Z_B1), (xb, yy + (0.212 if nm == "s" else 0.01), Z_B1 + 0.1), M["steel_brushed"], c)
+    bx("cont_end", (xa - 0.2, ya - 0.2, Z_B1), (xa, yb + 0.2, Z_B1 + H_B1 + 0.04), M["b1_wall"], c)
+    # columns on the concourse grid
+    for x in np.arange(CONT_W - 7.5, xa + 2, -7.5):
+        for y in np.arange(ya + 6.0, yb - 3.0, 7.5):
+            prism(f"cont_col_{x:.0f}_{y:.0f}", [[(x - 0.45, y - 0.45), (x + 0.45, y - 0.45), (x + 0.45, y + 0.45), (x - 0.45, y + 0.45)]],
+                  Z_B1 + 0.15, Z_B1 + H_B1, M["column"], c)
+            prism(f"cont_colsk_{x:.0f}_{y:.0f}", [[(x - 0.46, y - 0.46), (x + 0.46, y - 0.46), (x + 0.46, y + 0.46), (x - 0.46, y + 0.46)]],
+                  Z_B1, Z_B1 + 0.15, M["steel_brushed"], c)
+    # the next station's gate line, shut (flaps closed) across the whole hall
+    PLAN["gates"]["連絡改札"] = [[CONT_W_END, ya + 0.4], [CONT_W_END, yb - 0.4]]
+    # signs on the way: hanging boards pointing on to the JR / Hankyu lines
+    for x in (CONT_W - 4.0, CONT_W - 18.0):
+        hang_sign(f"cont_sign_{x:.0f}", x, (ya + yb) / 2, M["exit_b1"], M["exit_b1"], c, w=4.2, h=0.62)
+
+
 def build_fill_lights(M):
     """Light every floor the walker can reach. On the 3 m downlight grid, wherever there is floor
     at a level with a ceiling over it and no light within 3.2 m (side corridors, platform ends,
@@ -1370,7 +1479,7 @@ def build_fill_lights(M):
     lights = [ob.matrix_world.translation.copy() for ob in bpy.data.objects if ob.type == "LIGHT"]
     k = 0
     for z0, cname in ((Z_B1, "B1_lights"), (Z_B2, "B2_lights")):
-        for x in np.arange(-140, 140, 3.0):
+        for x in np.arange(-185, 140, 3.0):
             for y in np.arange(-50, 50, 3.0):
                 f = tree.ray_cast(Vector((x, y, z0 + 1.0)), Vector((0, 0, -1)), 1.3)
                 if f[0] is None or f[1].z < 0.7 or abs(f[0].z - z0) > 0.25:
@@ -1585,12 +1694,14 @@ def main():
     M = materials()
     print(f"materials {time.time() - t0:.1f}s")
     build_b1(M)
+    build_continuation(M)
     build_b2(M)
     build_stairs(M)
     build_gates(M)
     build_details(M)
     UP.build(sys.modules[__name__], M)
     build_exits(M)
+    build_perimeter(M)
     if args.view not in ("top", "overview"):
         build_b1_lights(M)
         build_fill_lights(M)

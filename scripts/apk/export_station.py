@@ -71,12 +71,14 @@ def build(gpu):
         BU.enable_gpu()
     M = BU.materials()
     BU.build_b1(M)
+    BU.build_continuation(M)
     BU.build_b2(M)
     BU.build_stairs(M)
     BU.build_gates(M)
     BU.build_details(M)
     BU.UP.build(BU, M)
     BU.build_exits(M)
+    BU.build_perimeter(M)
     BU.build_b1_lights(M)
     BU.build_fill_lights(M)
     log("scene built", len(bpy.data.objects), "objects")
@@ -244,7 +246,7 @@ def ramps_mesh():
 # ------------------------------------------------------------------ chunks
 
 def chunk_key(level, x, y):
-    cx = int(math.floor((x + 140.0) / 20.0))
+    cx = int(math.floor((x + 200.0) / 20.0))
     cy = int(math.floor((y + 60.0) / 30.0)) if level in ("B1", "UP") else 0
     return f"{level}_{cx:02d}_{cy}"
 
@@ -254,7 +256,7 @@ def split_into_chunks(ob, level):
     me = ob.data
     bm = bmesh.new()
     bm.from_mesh(me)
-    for xs in np.arange(-140.0, 160.0, 20.0):
+    for xs in np.arange(-200.0, 160.0, 20.0):
         geom = list(bm.verts) + list(bm.edges) + list(bm.faces)
         bmesh.ops.bisect_plane(bm, geom=geom, dist=1e-5, plane_co=(xs, 0, 0), plane_no=(1, 0, 0))
     if level in ("B1", "UP"):
@@ -1442,7 +1444,7 @@ def app_meta():
     # platform ends
     b1 = [np.array(p[0], np.float32).reshape(-1, 1, 2) for p in P["b1_floor"]]
     b2 = [np.array(p[0], np.float32).reshape(-1, 1, 2) for p in P["b2_floor"]]
-    for x in np.arange(-135, 136, 15.0):
+    for x in np.arange(-180, 136, 15.0):
         for y in np.arange(-45, 46, 15.0):
             if any(cv2.pointPolygonTest(w, (float(x), float(y)), False) >= 0 for w in b1):
                 probes.append({"pos": g((x, y, Z1 + 1.6)), "size": [15.0, 3.6, 15.0], "origin": [0, -0.1, 0]})
