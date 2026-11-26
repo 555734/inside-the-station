@@ -1414,9 +1414,13 @@ def build_perimeter(M):
                         j += 1
                     p0, p1 = a + (b - a) * ts[i], a + (b - a) * ts[j]
                     if np.linalg.norm(p1 - p0) >= 0.4:
+                        # counter-clockwise outlines: prism() then faces its sides outwards
+                        ccw = (p1 - p0)[0] * out[1] - (p1 - p0)[1] * out[0] > 0
                         q = [tuple(p0), tuple(p1), tuple(p1 + out * 0.2), tuple(p0 + out * 0.2)]
-                        prism(f"perim_{level}_{k}", [q], z0, z1, mat, level, uv_scale=2.4)
                         q2 = [tuple(p0 - out * 0.012), tuple(p1 - out * 0.012), tuple(p1), tuple(p0)]
+                        if not ccw:
+                            q, q2 = q[::-1], q2[::-1]
+                        prism(f"perim_{level}_{k}", [q], z0, z1, mat, level, uv_scale=2.4)
                         prism(f"perim_sk_{level}_{k}", [q2], z0, z0 + 0.1, M["steel_brushed"], level)
                         k += 1
                     i = j + 1

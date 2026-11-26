@@ -787,7 +787,7 @@ def find_openings(objs, wg):
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             if any(abs(z2 - z) <= 0.4 for z2 in reach.get((ix + dx, iy + dy), [])):
                 continue
-            if any(_front_hit(tree, eye, Vector((dx * cz, dy * cz, sz)).normalized(), 80.0) is None
+            if any(_front_hit(tree, eye, Vector((dx * cz, dy * cz, sz)).normalized(), 400.0) is None
                    for cz, sz in elev):
                 caps.append((ix, iy, z, dx, dy))
     # an end wall continues along its edge as far as the floor edge runs (no slits between end
