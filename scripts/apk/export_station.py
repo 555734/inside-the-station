@@ -673,6 +673,13 @@ def orient_faces(objs, wg, rays=512):
         ob.data.polygons.foreach_get("area", ar)
         log(f"{ob.name}: reversed {ar[flip].sum():.0f} m2 ({flip.sum()} faces), "
             f"two-sided {ar[twin].sum():.0f} m2 ({twin.sum()} faces)")
+        mats = [m.name if m else "" for m in ob.data.materials]
+        for fi in np.argsort(-ar * twin)[:5]:
+            if twin[fi]:
+                p_ = ob.data.polygons[int(fi)]
+                log(f"   two-sided {ar[fi]:.0f} m2 {mats[p_.material_index] if mats else ''} at "
+                    f"{tuple(round(v, 1) for v in p_.center)} normal {tuple(round(v, 2) for v in p_.normal)} "
+                    f"front {f[fi]} back {b[fi]}")
         off += n
     log(f"orientation from {len(eyes)} eye points")
     return out
