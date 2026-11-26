@@ -454,12 +454,12 @@ def texel_quantile(me, size, q=LM_QUANTILE):
 
 
 def bisect_chunk(ob, axis, value):
-    """Cut a chunk in two on the plane x (axis 0) or y (axis 1) = value: <name>a below, <name>b above."""
+    """Cut a chunk in two on the plane x (axis 0), y (axis 1) or z (axis 2) = value: <name>a below, <name>b above."""
     me = ob.data
     bm = bmesh.new()
     bm.from_mesh(me)
-    no = (1, 0, 0) if axis == 0 else (0, 1, 0)
-    co = (value, 0, 0) if axis == 0 else (0, value, 0)
+    no = tuple(1 if i == axis else 0 for i in range(3))
+    co = tuple(value if i == axis else 0 for i in range(3))
     bmesh.ops.bisect_plane(bm, geom=list(bm.verts) + list(bm.edges) + list(bm.faces), dist=1e-5,
                            plane_co=co, plane_no=no)
     bm.to_mesh(me)
@@ -515,12 +515,13 @@ def layout_chunk(ob, texel, max_lm, splits, depth=0):
     if best is None:
         if depth >= 8:
             raise RuntimeError(f"{ob.name}: cannot reach {texel} m texels")
-        n = len(ob.data.polygons)
-        cen = np.empty(n * 3, np.float32)
-        ob.data.polygons.foreach_get("center", cen)
-        cen = cen.reshape(n, 3)
-        lo, hi = cen.min(0), cen.max(0)
-        axis = 0 if hi[0] - lo[0] >= hi[1] - lo[1] else 1
+        # halve the longest side of the chunk's extent, height included: a street frontage up to
+        # 70 m tall does not fit 2048 texels of 3 cm however narrow its x/y slice is
+        co = np.empty(len(ob.data.vertices) * 3, np.float32)
+        ob.data.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        lo, hi = co.min(0), co.max(0)
+        axis = int(np.argmax(hi - lo))
         value = round(float(lo[axis] + hi[axis]) / 2.0, 2)
         splits[ob.name] = [axis, value]
         out = []
