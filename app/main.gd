@@ -213,6 +213,22 @@ func _load_station() -> void:
 		sky.sky_material = pm
 		env.sky = sky
 		env.background_mode = Environment.BG_SKY
+	# occlusion culling: chunks hidden behind big walls, floors and ceilings are not drawn
+	if FileAccess.file_exists("res://station/occluders.bin"):
+		var raw := FileAccess.get_file_as_bytes("res://station/occluders.bin").to_float32_array()
+		var pts := PackedVector3Array()
+		pts.resize(raw.size() / 3)
+		for i in pts.size():
+			pts[i] = Vector3(raw[3 * i], raw[3 * i + 1], raw[3 * i + 2])
+		var idx := PackedInt32Array()
+		idx.resize(pts.size())
+		for i in idx.size():
+			idx[i] = i
+		var occ := ArrayOccluder3D.new()
+		occ.set_arrays(pts, idx)
+		var oi := OccluderInstance3D.new()
+		oi.occluder = occ
+		add_child(oi)
 	# collision: walls, floors, ramps over stairs and escalators
 	var cs: Node = load("res://station/collision.glb").instantiate()
 	var cms := []

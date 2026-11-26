@@ -223,6 +223,39 @@ def sky_panorama(path, w=2048):
      sc.cycles.samples, sc.render.filepath, sc.render.image_settings.file_format) = keep
 
 
+OCCLUDER_SKIP = ("glass", "psd_glass", "glass_rail", "shop_glass", "led", "screen", "sign", "ad", "poster")
+
+
+def write_occluders(chunks, path, min_area=2.0):
+    """Big opaque faces (walls, floors, ceilings, slabs) as triangles for the app's occlusion
+    culling: whole chunks hidden behind them are not drawn. Float32 x,y,z per corner, Godot axes."""
+    tris = []
+    for ob in chunks:
+        me = ob.data
+        me.calc_loop_triangles()
+        mats = [m.name if m else "" for m in me.materials]
+        ar = np.empty(len(me.polygons), np.float32)
+        me.polygons.foreach_get("area", ar)
+        mi = np.empty(len(me.polygons), np.int32)
+        me.polygons.foreach_get("material_index", mi)
+        co = np.empty(len(me.vertices) * 3, np.float32)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        mw = np.array(ob.matrix_world, np.float32)
+        co = co @ mw[:3, :3].T + mw[:3, 3]
+        lt = np.empty(len(me.loop_triangles) * 3, np.int32)
+        me.loop_triangles.foreach_get("vertices", lt)
+        lp = np.empty(len(me.loop_triangles), np.int32)
+        me.loop_triangles.foreach_get("polygon_index", lp)
+        keep = (ar[lp] >= min_area) & np.array([not any(k in mats[mi[p_]] for k in OCCLUDER_SKIP) for p_ in lp], bool)
+        t = co[lt.reshape(-1, 3)[keep]]
+        tris.append(t)
+    t = np.concatenate(tris) if tris else np.zeros((0, 3, 3), np.float32)
+    g_ = np.stack([t[..., 0], t[..., 2], -t[..., 1]], -1).astype(np.float32)
+    g_.tofile(path)
+    log("occluder triangles", len(g_))
+
+
 def ramps_mesh():
     verts, faces = [], []
     for ramp in BU.RAMPS:
@@ -562,7 +595,7 @@ def walk_grid(col, grid=0.5):
 
     def blocked(x, y, z, dx, dy):
         d = Vector((dx, dy, 0)).normalized()
-        return any(ct.ray_cast(Vector((x, y, z + hz)), d, math.hypot(dx, dy))[0] is not None for hz in (0.45, 1.2))
+        return any(ct.ray_cast(Vector((x, y, z + hz)), d, math.hypot(dx, dy))[0] is not None for hz in (0.45, 0.8, 1.2))
 
     seeds = []
     for sp in app_meta()["spawns"]:
@@ -593,10 +626,12 @@ def walk_grid(col, grid=0.5):
 
 
 def walk_eyes(wg, every=2, eye=1.6):
-    """Eye points 1.6 m over the reachable floor, every `every` grid steps."""
+    """Eye points 1.6 m over the reachable floor, every `every` grid steps (out in the street,
+    where everything is far and open, every 3 * `every`)."""
     lo, g = wg["lo"], wg["grid"]
+    z_st = BU.UST.Z_ST - 0.5
     return [(lo[0] + ix * g, lo[1] + iy * g, z + eye) for ix, iy, z in wg["nodes"]
-            if ix % every == 0 and iy % every == 0]
+            if (ix % every == 0 and iy % every == 0) if z < z_st or (ix % (3 * every) == 0 and iy % (3 * every) == 0)]
 
 
 def orient_faces(objs, wg, rays=512):
@@ -608,8 +643,8 @@ def orient_faces(objs, wg, rays=512):
     eyes = walk_eyes(wg)
     tree = _bvh(objs)
     nf = [len(ob.data.polygons) for ob in objs]
-    front = np.zeros(sum(nf), np.int64)
-    back = np.zeros(sum(nf), np.int64)
+    front = np.zeros(sum(nf) + 16, np.int64)       # + the sky shell's faces (counted, then dropped)
+    back = np.zeros(sum(nf) + 16, np.int64)
     k = np.arange(rays) + 0.5
     zz = 1 - 2 * k / rays
     phi = k * math.pi * (3 - math.sqrt(5))
@@ -1639,6 +1674,7 @@ def main():
     export([col], os.path.join(out, "collision.glb"), mats=False)
     meta = app_meta()
     meta["lightmaps"] = {ob.name: {"file": f"lightmaps/{ob.name}.png"} for ob in chunks}
+    write_occluders(chunks, os.path.join(out, "occluders.bin"))
     json.dump(meta, open(os.path.join(out, "app.json"), "w"), ensure_ascii=False, indent=1)
     log("station data written")
     if a.zip:
