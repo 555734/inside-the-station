@@ -301,7 +301,7 @@ def street(BU, B, M, hoods):
             while x < xb:
                 yt = yy + side * 1.4
                 if not _near_hood(x, yt, hoods, 3.0):
-                    _ginkgo(BU, B, M, f"tree_{side}_{x:.0f}", x, yt, z, c, seed=int(x * 7) + (side > 0))
+                    _ginkgo(BU, B, M, f"tree_{side}_{x:.0f}", x, yt, z, c, seed=abs(int(x * 7)) * 2 + (side > 0))
                 if k % 2 == 0 and not _near_hood(x + 5, yt, hoods, 2.0):
                     _street_lamp(BU, B, M, f"lamp_{side}_{x:.0f}", x + 5, yt, z, -side, c)
                 k += 1
@@ -401,5 +401,9 @@ def build(BU, M):
         cuts.append(cut)
         hoods.append(hood)
     BU.EXIT_CUTS.extend(cuts)
+    import time
+    t0 = time.time()
     carve(BU, cuts)
+    print(f"exits {len(cuts)} carved {time.time() - t0:.0f}s", flush=True)
     street(BU, B, M, hoods)
+    print(f"street {time.time() - t0:.0f}s", flush=True)
