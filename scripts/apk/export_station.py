@@ -1509,6 +1509,8 @@ def app_meta():
         {"name": "J階段", "pos": g((P["stairs"]["J"]["x_top"] + 1.2, -7.6, Z1)), "fwd": fwd(90)},
         {"name": "北改札内 通路", "pos": g((st["x_top"] - 6.0, -5.2, Z1)), "fwd": fwd(-90)},
         {"name": "北改札", "pos": g((-132.6, -4.8, Z1)), "fwd": fwd(-116)},
+        # out in the street: the pavement past the canopy of exit 3, looking along the avenue
+        {"name": "地上 御堂筋", "pos": g((-100.0, -44.0, BU.UST.Z_ST)), "fwd": fwd(-90)},
     ]
     probes = []
     px0, px1 = P["plat_x"]
