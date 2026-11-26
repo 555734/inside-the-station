@@ -1513,9 +1513,12 @@ def build_continuation(M):
     poly = [[(xa, ya), (xb, ya), (xb, yb), (xa, yb)]]
     prism("cont_floor", poly, Z_B1 - 0.35, Z_B1, M["b1_floor"], c, uv_scale=2.4)
     prism("cont_ceil", poly, Z_B1 + H_B1, Z_B1 + H_B1 + 0.05, M["ceil"], "B1_ceiling", uv_scale=1.2)
+    # side walls run 0.4 m on along the concourse's own outline walls (those start a little east
+    # of the corner, so the walls met with a slit at both corners)
+    xw = CONT_W + 0.45
     for yy, nm in ((ya - 0.2, "s"), (yb, "n")):
-        bx(f"cont_wall_{nm}", (xa, yy, Z_B1), (xb, yy + 0.2, Z_B1 + H_B1 + 0.04), M["b1_wall"], c)
-        bx(f"cont_sk_{nm}", (xa, yy + (0.19 if nm == "s" else -0.002), Z_B1), (xb, yy + (0.212 if nm == "s" else 0.01), Z_B1 + 0.1), M["steel_brushed"], c)
+        bx(f"cont_wall_{nm}", (xa, yy, Z_B1), (xw, yy + 0.2, Z_B1 + H_B1 + 0.04), M["b1_wall"], c)
+        bx(f"cont_sk_{nm}", (xa, yy + (0.19 if nm == "s" else -0.002), Z_B1), (xw, yy + (0.212 if nm == "s" else 0.01), Z_B1 + 0.1), M["steel_brushed"], c)
     bx("cont_end", (xa - 0.2, ya - 0.2, Z_B1), (xa, yb + 0.2, Z_B1 + H_B1 + 0.04), M["b1_wall"], c)
     # columns on the concourse grid
     for x in np.arange(CONT_W - 7.5, xa + 2, -7.5):
