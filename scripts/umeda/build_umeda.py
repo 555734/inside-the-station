@@ -1585,30 +1585,45 @@ def build_fill_lights(M):
                 return False                  # the first surface is seen from behind: inside a solid
         return True
 
+    def spot(x, y, z0, lights):
+        p = Vector((float(x), float(y), z0 + 1.2))
+        if not open_space(p):
+            return None
+        f = tree.ray_cast(p, Vector((0, 0, -1)), 1.5)
+        if f[0] is None or f[1].z < 0.7 or abs(f[0].z - z0) > 0.25:
+            return None
+        c = tree.ray_cast(p, Vector((0, 0, 1)), 8.0)
+        if c[0] is None or c[1].z > -0.5 or not 2.1 < c[0].z - f[0].z < 7.0:
+            return None
+        zc = round(c[0].z, 3)
+        if any((L.x - x) ** 2 + (L.y - y) ** 2 < 3.2 ** 2 and abs(L.z - zc) < 2.0 for L in lights):
+            return None
+        return zc
+
+    # two passes over the checkerboard: the "even" points against the lights there before, then the
+    # "odd" ones against those and the even fill lights (odd points are 4.2 m apart, so no odd
+    # decision depends on another: nothing carries over along the scan)
     k = 0
     for z0, cname in ((Z_B1, "B1_lights"), (Z_B2, "B2_lights")):
-        for i, x in enumerate(np.arange(-185, 140, 3.0)):
-            for j, y in enumerate(np.arange(-50, 50, 3.0)):
-                if (i + j) % 2:
-                    continue
-                p = Vector((float(x), float(y), z0 + 1.2))
-                if not open_space(p):
-                    continue
-                f = tree.ray_cast(p, Vector((0, 0, -1)), 1.5)
-                if f[0] is None or f[1].z < 0.7 or abs(f[0].z - z0) > 0.25:
-                    continue
-                c = tree.ray_cast(p, Vector((0, 0, 1)), 8.0)
-                if c[0] is None or c[1].z > -0.5 or not 2.1 < c[0].z - f[0].z < 7.0:
-                    continue
-                zc = round(c[0].z, 3)
-                if any((L.x - x) ** 2 + (L.y - y) ** 2 < 3.2 ** 2 and abs(L.z - zc) < 2.0 for L in before):
-                    continue
-                put(B.cylinder(f"filldl_{k}", (x, y, zc - 0.004), 0.09, 0.01, M["downlight"], segs=20), cname)
-                put(B.cylinder(f"filldlr_{k}", (x, y, zc - 0.002), 0.11, 0.006, M["steel"], segs=20), cname)
-                ob = B.area_light(f"fillA_{k}", (x, y, zc - 0.02), 0.2, 0.2, 85.0, (1.0, 0.96, 0.9), camera=False)
-                ob.data.spread = math.radians(150)
-                put(ob, cname)
-                k += 1
+        placed = []
+        for parity in (0, 1):
+            lights = before + [Vector(q) for q in placed]
+            new = []
+            for i, x in enumerate(np.arange(-185, 140, 3.0)):
+                for j, y in enumerate(np.arange(-50, 50, 3.0)):
+                    if (i + j) % 2 != parity:
+                        continue
+                    zc = spot(x, y, z0, lights)
+                    if zc is not None:
+                        new.append((float(x), float(y), zc))
+            placed += new
+        for (x, y, zc) in placed:
+            put(B.cylinder(f"filldl_{k}", (x, y, zc - 0.004), 0.09, 0.01, M["downlight"], segs=20), cname)
+            put(B.cylinder(f"filldlr_{k}", (x, y, zc - 0.002), 0.11, 0.006, M["steel"], segs=20), cname)
+            ob = B.area_light(f"fillA_{k}", (x, y, zc - 0.02), 0.2, 0.2, 85.0, (1.0, 0.96, 0.9), camera=False)
+            ob.data.spread = math.radians(150)
+            put(ob, cname)
+            k += 1
     print("fill lights", k)
 
 
