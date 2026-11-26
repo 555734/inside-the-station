@@ -144,15 +144,23 @@ jobs:
           echo "chunks: $(cat /tmp/mine.txt)"
           SKIP=$(python -c "import json,sys; i=json.load(open('/tmp/layout/uv/index.json')); mine=set(open('/tmp/mine.txt').read().strip().split(',')); print(','.join(sorted(set(i['sizes'])-mine)))")
           WANT=$(python -c "import json; r=json.load(open('.github/bake/request.json')); print(r.get('expect_layout') or r.get('layout') or json.load(open('/tmp/layout/uv/index.json'))['layout_id'])")
-          python scripts/apk/export_station.py /tmp/station $EXPORT_ARGS --uv-from /tmp/layout/uv \
-            --raw-dir /tmp/raw --skip "$SKIP" --reverse --deadline $(( $(date +%s) + 18600 )) > /tmp/export.log 2>&1 &
-          PID=$!
-          if [ -n "$WANT" ]; then
+          # the scene build has died now and then on a runner before the layout (4 of 20 runners
+          # once): up to three attempts, with the log and the kernel's last words each time
+          for attempt in 1 2 3; do
+            python scripts/apk/export_station.py /tmp/station $EXPORT_ARGS --uv-from /tmp/layout/uv \
+              --raw-dir /tmp/raw --skip "$SKIP" --reverse --deadline $(( $(date +%s) + 18000 )) > /tmp/export.log 2>&1 &
+            PID=$!
             until grep -q " layout [0-9a-f]\{12\}" /tmp/export.log || ! kill -0 $PID 2>/dev/null; do sleep 5; done
+            if grep -q " layout [0-9a-f]\{12\}" /tmp/export.log; then break; fi
+            echo "attempt $attempt: the export ended before the layout"; grep -v "^Info:" /tmp/export.log | tail -25
+            sudo dmesg 2>/dev/null | tail -8 || true
+            free -m || true
+          done
+          if [ -n "$WANT" ]; then
             grep " layout [0-9a-f]\{12\}" /tmp/export.log | tail -1
-            if ! grep -q " layout $WANT" /tmp/export.log; then echo "layout is not $WANT"; kill $PID; cat /tmp/export.log | tail -40; exit 1; fi
+            if ! grep -q " layout $WANT" /tmp/export.log; then echo "layout is not $WANT"; kill $PID 2>/dev/null || true; tail -40 /tmp/export.log; exit 1; fi
             # every chunk must keep the prepared UVs (a chunk laid out again here would not match)
-            if ! grep -q "layouts reused, 0 chunks laid out anew" /tmp/export.log; then echo "some chunks were laid out again"; grep "laid out anew" /tmp/export.log; kill $PID; exit 1; fi
+            if ! grep -q "layouts reused, 0 chunks laid out anew" /tmp/export.log; then echo "some chunks were laid out again"; grep "laid out anew" /tmp/export.log; kill $PID 2>/dev/null || true; exit 1; fi
           fi
           st=0; wait $PID || st=$?
           grep -v "^Info:" /tmp/export.log | tail -30

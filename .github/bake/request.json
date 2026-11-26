@@ -1,1 +1,1 @@
-{"samples": 128, "auto_parts": 40, "note": "full bake; never-seen slab faces get no texels"}
+{"samples": 128, "auto_parts": 40, "prep_run": 45810634164, "layout": "e7fa222b08a9", "note": "full bake on the prepared layout; export retried and logged"}

@@ -28,6 +28,18 @@ var probe_t := 0.0
 const PROBE_SLOTS := 32
 const PROBES_ON := 24
 const PROBES_KEEP := 30
+## Lightmap streaming. Every chunk always has its 1/8 size stand-in; the full lightmap is in memory
+## only where it can be on screen: underground all of the station (B1, B2, stairs) and the street
+## chunks within NEAR_LOAD m (the exit stairs and what is seen up them); up the exit stairs and in
+## the street all of the street and the station chunks within NEAR_LOAD m (seen down the stairs),
+## never the platform level. Full lightmaps load on a thread before they come into view.
+var chunk_info := {}                 # chunk -> {mats, aabb, level, hi, lo, state 0 stand-in / 1 loading / 2 full}
+var stream_t := 0.0
+var street_mode := false
+const NEAR_LOAD := 70.0
+const NEAR_DROP := 85.0
+const STREET_IN := 2.5               # feet height (m) above which the walker counts as in the street
+const STREET_OUT := 1.5
 
 
 func _ready() -> void:
@@ -173,7 +185,8 @@ func _load_station() -> void:
 		if lmi.is_empty():
 			push_warning("no lightmap for " + chunk)
 			continue
-		var lm := _tex(lmi["file"])
+		var streamed: bool = lmi.has("lo") and not OS.get_cmdline_user_args().has("--chunkcol")
+		var lm: Texture2D = load("res://station/" + lmi["lo"]) if streamed else _tex(lmi["file"])
 		if OS.get_cmdline_user_args().has("--chunkcol"):
 			# desktop check: a flat colour per chunk instead of its lightmap (finds which chunk a
 			# surface belongs to); the colours are printed as CHUNKCOL lines
@@ -182,11 +195,17 @@ func _load_station() -> void:
 			img.fill(Color(float(h & 255) / 255.0, float((h >> 8) & 255) / 255.0, float((h >> 16) & 255) / 255.0))
 			lm = ImageTexture.create_from_image(img)
 			print("CHUNKCOL ", chunk, " ", img.get_pixel(0, 0).to_html(false))
+		var cm := []
 		for s in mi.mesh.get_surface_count():
 			var sm: Material = mi.mesh.surface_get_material(s)
 			var mname := sm.resource_name if sm != null else ""
-			mi.set_surface_override_material(s, _material(mname, lm))
+			var mat := _material(mname, lm)
+			mi.set_surface_override_material(s, mat)
+			cm.append(mat)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if streamed:
+			chunk_info[chunk] = {"mats": cm, "aabb": mi.global_transform * mi.get_aabb(),
+				"level": chunk.get_slice("_", 0), "hi": "res://station/" + lmi["file"], "lo": lm, "state": 0}
 		n += 1
 		if n % 8 == 0:
 			status.text = "読み込み中… %d / %d" % [n, meshes.size()]
@@ -334,6 +353,7 @@ func _maybe_screenshot() -> void:
 				player.rotation = Vector3(0, player.yaw, 0)
 				player.cam.rotation = Vector3(player.pitch, 0, 0)
 				player.velocity = Vector3.ZERO
+				_stream(true)
 				_pick_probes()
 				for k in 6:
 					await get_tree().process_frame
@@ -368,7 +388,64 @@ func _maybe_screenshot() -> void:
 func _go(i: int) -> void:
 	var s: Dictionary = meta["spawns"][i]
 	player.place(_v(s["pos"]), _v(s["fwd"]))
+	_stream(true)
 	_pick_probes()
+
+
+func _hdist(b: AABB, p: Vector3) -> float:
+	var q := p.clamp(b.position, b.end)
+	return Vector2(q.x - p.x, q.z - p.z).length()
+
+
+func _want_full(c: Dictionary, eye: Vector3) -> bool:
+	var near := _hdist(c["aabb"], eye) < (NEAR_LOAD if c["state"] == 0 else NEAR_DROP)
+	var lvl: String = c["level"]
+	if street_mode:
+		if lvl == "UP":
+			return true
+		return near and lvl != "B2"
+	return near if lvl == "UP" else true
+
+
+func _set_lm(c: Dictionary, t: Texture2D) -> void:
+	for m in c["mats"]:
+		m.set_shader_parameter("lightmap", t)
+
+
+func _stream(now := false) -> void:
+	# now: everything wanted is loaded before returning (start, teleports, desktop shots)
+	if player == null or chunk_info.is_empty():
+		return
+	var eye := player.global_position
+	if street_mode and eye.y < STREET_OUT:
+		street_mode = false
+	elif not street_mode and eye.y > STREET_IN:
+		street_mode = true
+	for name in chunk_info:
+		var c: Dictionary = chunk_info[name]
+		var want := _want_full(c, eye)
+		if c["state"] == 1:
+			var st := ResourceLoader.load_threaded_get_status(c["hi"])
+			if st == ResourceLoader.THREAD_LOAD_LOADED or (now and st == ResourceLoader.THREAD_LOAD_IN_PROGRESS):
+				var t: Texture2D = ResourceLoader.load_threaded_get(c["hi"])
+				if want and t != null:
+					_set_lm(c, t)
+					c["state"] = 2
+				else:
+					c["state"] = 0
+			elif st != ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				c["state"] = 0
+		elif want and c["state"] == 0:
+			if now:
+				var t2: Texture2D = load(c["hi"])
+				if t2 != null:
+					_set_lm(c, t2)
+					c["state"] = 2
+			elif ResourceLoader.load_threaded_request(c["hi"]) == OK:
+				c["state"] = 1
+		elif not want and c["state"] == 2:
+			_set_lm(c, c["lo"])
+			c["state"] = 0
 
 
 func respawn() -> void:
@@ -383,6 +460,10 @@ func _process(d: float) -> void:
 		var t := clampf((player.global_position.y - 1.5) / (Z_STREET - 1.5), 0.0, 1.0)
 		var target := lerpf(EXPOSURE_IN, EXPOSURE_OUT, t * t * (3.0 - 2.0 * t))
 		env.tonemap_exposure = lerpf(env.tonemap_exposure, target, clampf(d * 1.5, 0.0, 1.0))
+	stream_t -= d
+	if stream_t <= 0.0:
+		stream_t = 0.3
+		_stream()
 	probe_t -= d
 	if probe_t <= 0.0 and player and not probe_data.is_empty():
 		probe_t = 0.25

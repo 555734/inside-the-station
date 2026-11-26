@@ -4,7 +4,8 @@
 
 For every chunk listed in OUT/app.json the raw float16 irradiance (RAW/<chunk>.npz, written by
 export_station.py) is denoised with Open Image Denoise and stored as OUT/lightmaps/<chunk>.png
-(sqrt(E / (E + 1)) in 8 bits, the encoding the app decodes). Stops with a list of the chunks
+(sqrt(E / (E + 1)) in 8 bits, the encoding the app decodes), and a 1/8 size stand-in as
+OUT/lightmaps_lo/<chunk>.png (shown while the app has the full one unloaded). Stops with a list of the chunks
 that have no raw lightmap yet. With --resume, chunks whose PNG is already newer than their raw
 lightmap are left as they are (so it can be run while bakes are still coming in).
 """
@@ -25,6 +26,28 @@ def save_lightmap(e, path):
     enc = np.sqrt(e / (e + 1.0))
     Image.fromarray((enc[::-1] * 255 + 0.5).clip(0, 255).astype(np.uint8)).save(path, optimize=True)
     return float(np.percentile(e, 99))
+
+
+LO = 8
+
+
+def save_lowres(e, path):
+    """A 1/8 size stand-in the app shows while the full lightmap of a chunk is not loaded: mean of
+    the covered texels in each 8 x 8 block (empty gutter texels left out), empty blocks filled
+    from the nearest covered one."""
+    from scipy import ndimage
+    e = np.clip(np.asarray(e, np.float32), 0, None)
+    h, w = e.shape[0] // LO * LO, e.shape[1] // LO * LO
+    e = e[:h, :w]
+    m = (e.sum(-1) > 1e-6).astype(np.float32)
+    s = (e * m[..., None]).reshape(h // LO, LO, w // LO, LO, 3).sum((1, 3))
+    c = m.reshape(h // LO, LO, w // LO, LO).sum((1, 3))
+    lo = s / np.maximum(c, 1.0)[..., None]
+    empty = c == 0
+    if empty.any() and not empty.all():
+        idx = ndimage.distance_transform_edt(empty, return_distances=False, return_indices=True)
+        lo = lo[idx[0], idx[1]]
+    save_lightmap(lo, path)
 
 
 def main():
@@ -50,6 +73,10 @@ def main():
         if not a.no_denoise:
             e = denoise(e)
         info["p99"] = save_lightmap(e, dst)
+        lo_dst = os.path.join(a.out, "lightmaps_lo", os.path.basename(info["file"]))
+        os.makedirs(os.path.dirname(lo_dst), exist_ok=True)
+        save_lowres(e, lo_dst)
+        info["lo"] = os.path.relpath(lo_dst, a.out)
         print(name, e.shape[1], "px", "denoised" if not a.no_denoise else "raw", flush=True)
         json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)
     # the unbaked far part of the avenue is lit like the baked street near by
