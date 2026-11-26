@@ -1316,6 +1316,10 @@ def bake_batch(chunks, sizes, raw_dir):
         images[ob.name] = img
         originals[ob.name] = list(ob.data.materials)
         for i, m in enumerate(ob.data.materials):
+            if m is None:                       # an empty slot: bake it as plain grey
+                m = bpy.data.materials.get("_bake_plain") or bpy.data.materials.new("_bake_plain")
+                m.use_nodes = True
+                log(f"{ob.name}: empty material slot {i} baked as plain grey")
             mc = m.copy()
             nt = mc.node_tree
             node = nt.nodes.new("ShaderNodeTexImage")

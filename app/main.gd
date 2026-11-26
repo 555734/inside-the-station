@@ -324,6 +324,9 @@ func _maybe_screenshot() -> void:
 				P.get_monitor(P.RENDER_TOTAL_PRIMITIVES_IN_FRAME), P.get_monitor(P.RENDER_VIDEO_MEM_USED) / 1048576.0,
 				P.get_monitor(P.RENDER_TEXTURE_MEM_USED) / 1048576.0, P.get_monitor(P.RENDER_BUFFER_MEM_USED) / 1048576.0,
 				P.get_monitor(P.MEMORY_STATIC) / 1048576.0])
+			var outp := []
+			OS.execute("grep", ["VmRSS", "/proc/%d/status" % OS.get_process_id()], outp)
+			print("RSS spawn %d %s" % [i, str(outp).strip_edges()])
 		get_tree().quit()
 		return
 	if OS.get_cmdline_user_args().has("--bench"):
@@ -398,6 +401,8 @@ func _hdist(b: AABB, p: Vector3) -> float:
 
 
 func _want_full(c: Dictionary, eye: Vector3) -> bool:
+	if OS.get_cmdline_user_args().has("--nohi"):
+		return false
 	var near := _hdist(c["aabb"], eye) < (NEAR_LOAD if c["state"] == 0 else NEAR_DROP)
 	var lvl: String = c["level"]
 	if street_mode:
@@ -446,6 +451,16 @@ func _stream(now := false) -> void:
 		elif not want and c["state"] == 2:
 			_set_lm(c, c["lo"])
 			c["state"] = 0
+	if now and OS.get_cmdline_user_args().has("--stats"):
+		var full := {}
+		for name in chunk_info:
+			if chunk_info[name]["state"] == 2:
+				full[chunk_info[name]["level"]] = full.get(chunk_info[name]["level"], 0) + 1
+		var alive := 0
+		for name in chunk_info:
+			if chunk_info[name]["state"] == 0 and ResourceLoader.has_cached(chunk_info[name]["hi"]):
+				alive += 1
+		print("STREAM street=%s full=%s unloaded-but-cached=%d" % [street_mode, full, alive])
 
 
 func respawn() -> void:

@@ -335,6 +335,12 @@ def carve(BU, cuts, keep_prefix=("ex",)):
                 bpy.ops.object.modifier_apply(modifier=mod.name)
             except RuntimeError:
                 ob.modifiers.remove(mod)
+            # the faces the cut makes (a wall's or a slab's section in the stairwell) come with the
+            # cutter's empty material slot: they are of the object's own material
+            own = next((m for m in ob.data.materials if m is not None), None)
+            for i, m in enumerate(ob.data.materials):
+                if m is None and own is not None:
+                    ob.data.materials[i] = own
         bpy.data.objects.remove(cutter)
 
 
