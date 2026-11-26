@@ -32,10 +32,12 @@ const PROBES_KEEP := 30
 ## only where it can be on screen: underground all of the station (B1, B2, stairs) and the street
 ## chunks within NEAR_LOAD m (the exit stairs and what is seen up them); up the exit stairs and in
 ## the street all of the street and the station chunks within NEAR_LOAD m (seen down the stairs),
-## never the platform level. Full lightmaps load on a thread before they come into view.
+## never the platform level; down on the platform level none of the street. Full lightmaps load
+## on a thread before they come into view.
 var chunk_info := {}                 # chunk -> {mats, aabb, level, hi, lo, state 0 stand-in / 1 loading / 2 full}
 var stream_t := 0.0
 var street_mode := false
+var platform_mode := false           # down on the platform level: the street cannot be seen at all
 const NEAR_LOAD := 70.0
 const NEAR_DROP := 85.0
 const STREET_IN := 2.5               # feet height (m) above which the walker counts as in the street
@@ -409,7 +411,9 @@ func _want_full(c: Dictionary, eye: Vector3) -> bool:
 		if lvl == "UP":
 			return true
 		return near and lvl != "B2"
-	return near if lvl == "UP" else true
+	if lvl == "UP":
+		return near and not platform_mode
+	return true
 
 
 func _set_lm(c: Dictionary, t: Texture2D) -> void:
@@ -426,6 +430,10 @@ func _stream(now := false) -> void:
 		street_mode = false
 	elif not street_mode and eye.y > STREET_IN:
 		street_mode = true
+	if platform_mode and eye.y > -2.5:
+		platform_mode = false
+	elif not platform_mode and eye.y < -3.0:
+		platform_mode = true
 	for name in chunk_info:
 		var c: Dictionary = chunk_info[name]
 		var want := _want_full(c, eye)

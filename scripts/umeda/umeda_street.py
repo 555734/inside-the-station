@@ -287,7 +287,9 @@ def exit_stair(BU, B, M, k, e):
             BU.put(L_, "Street_lights")
             j += 1
         xl += 2.4
-    # into world space
+    # into world space (matrix_world only holds a location/rotation set in Python after an update:
+    # without it the rails' segments and the lights were moved from the identity, all to the foot)
+    bpy.context.view_layer.update()
     F = _frame(foot, u)
     for ob in _new_objects(before):
         if ob.type in ("MESH", "LIGHT"):
@@ -305,6 +307,7 @@ def exit_stair(BU, B, M, k, e):
 
 def carve(BU, cuts, keep_prefix=("ex",)):
     """Boolean the stairwell volumes out of the station objects they run through."""
+    bpy.context.view_layer.update()            # current matrix_world for the bounding-box test
     for F, lo, hi in cuts:
         me = bpy.data.meshes.new("cutter")
         bx_ = [(lo[0], lo[1], lo[2]), (hi[0], lo[1], lo[2]), (hi[0], hi[1], lo[2]), (lo[0], hi[1], lo[2]),
