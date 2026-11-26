@@ -259,15 +259,19 @@ def exit_stair(BU, B, M, k, e):
     pts = [(x, max(BU.Z_B1 + BU.H_B1, nose(x) + 2.7)) for x in xc]
     ceil_poly = pts + [(x, z + 0.08) for (x, z) in pts[::-1]]
     BU.incline_prism(f"ex{k}_ceil", ceil_poly, y0, y1, M["ceil"], cname)
-    xl = 1.2
+    # line lights in the sloping ceiling: two rows (one on a narrow stair), every 1.8 m from the
+    # foot to the canopy, as bright as the concourse
+    rows = (y0 + w * 0.25, y1 - w * 0.25) if w > 3.0 else (0.0,)
+    xl = 0.9
     j = 0
-    while xl < x_open - 0.8:
+    while xl < x_open - 0.4:
         zc = max(BU.Z_B1 + BU.H_B1, nose(xl) + 2.7)
-        BU.bx(f"ex{k}_led{j}", (xl - 0.6, -0.07, zc - 0.04), (xl + 0.6, 0.07, zc), M["led_line"], "Street_lights")
-        L_ = B.area_light(f"ex{k}_ledA{j}", (xl, 0.0, zc - 0.05), 1.2, 0.14, 70.0, (1.0, 0.97, 0.92), camera=False)
-        BU.put(L_, "Street_lights")
-        xl += 2.4
-        j += 1
+        for yl in rows:
+            BU.bx(f"ex{k}_led{j}", (xl - 0.6, yl - 0.07, zc - 0.04), (xl + 0.6, yl + 0.07, zc), M["led_line"], "Street_lights")
+            L_ = B.area_light(f"ex{k}_ledA{j}", (xl, yl, zc - 0.05), 1.2, 0.14, 95.0, (1.0, 0.97, 0.92), camera=False)
+            BU.put(L_, "Street_lights")
+            j += 1
+        xl += 1.8
     # canopy over the top of the stair: walls, roof, fascia, lights
     yh0, yh1 = y0 - 0.15, y1 + 0.15
     BU.bx(f"ex{k}_hood_back", (x_open - 0.3, yh0, Z_ST - 0.02), (x_open, yh1, Z_ST + H_HOOD), M["hood_panel"], cname)
