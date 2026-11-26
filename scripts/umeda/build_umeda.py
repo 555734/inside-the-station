@@ -1399,11 +1399,13 @@ def build_perimeter(M):
                 n = max(2, int(L / 0.2) + 1)
                 ts = np.linspace(0, 1, n)
                 free = []
+                bare = []
                 for t in ts:
                     p = a + (b - a) * t
                     ix, iy = int((p[0] - X0) / res), int((p[1] - Y0) / res)
                     cov = 0 <= iy < H and 0 <= ix < W and near[iy, ix]
-                    free.append(not cov and not _skip_perimeter(level, p[0], p[1]))
+                    free.append(not _skip_perimeter(level, p[0], p[1]))
+                    bare.append(not cov)
                 i = 0
                 while i < n:
                     if not free[i]:
@@ -1414,14 +1416,21 @@ def build_perimeter(M):
                         j += 1
                     p0, p1 = a + (b - a) * ts[i], a + (b - a) * ts[j]
                     if np.linalg.norm(p1 - p0) >= 0.4:
-                        # counter-clockwise outlines: prism() then faces its sides outwards
+                        # the whole outline, 3 mm outside it (a wall the map drew along the edge
+                        # stays in front, no coplanar faces), from under the floor slab to over the
+                        # ceiling (no slit at either); counter-clockwise so prism() faces it outwards
                         ccw = (p1 - p0)[0] * out[1] - (p1 - p0)[1] * out[0] > 0
-                        q = [tuple(p0), tuple(p1), tuple(p1 + out * 0.2), tuple(p0 + out * 0.2)]
-                        q2 = [tuple(p0 - out * 0.012), tuple(p1 - out * 0.012), tuple(p1), tuple(p0)]
+                        e0, e1 = p0 + out * 0.003, p1 + out * 0.003
+                        q = [tuple(e0), tuple(e1), tuple(e1 + out * 0.2), tuple(e0 + out * 0.2)]
                         if not ccw:
-                            q, q2 = q[::-1], q2[::-1]
-                        prism(f"perim_{level}_{k}", [q], z0, z1, mat, level, uv_scale=2.4)
-                        prism(f"perim_sk_{level}_{k}", [q2], z0, z0 + 0.1, M["steel_brushed"], level)
+                            q = q[::-1]
+                        prism(f"perim_{level}_{k}", [q], z0 - 0.4, z1 + 0.3, mat, level, uv_scale=2.4)
+                        # skirting only where no wall of the map stands along the edge
+                        if sum(bare[i:j + 1]) > (j - i + 1) / 2:
+                            q2 = [tuple(p0 - out * 0.012), tuple(p1 - out * 0.012), tuple(e1), tuple(e0)]
+                            if not ccw:
+                                q2 = q2[::-1]
+                            prism(f"perim_sk_{level}_{k}", [q2], z0, z0 + 0.1, M["steel_brushed"], level)
                         k += 1
                     i = j + 1
     print("perimeter walls", k)
