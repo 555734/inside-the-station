@@ -50,10 +50,11 @@ def patch_targets(mode, name):
     me = ob.data
     s = idx["sizes"][name]
     keys = E.loop_keys(me)
-    orig = by_key(f"{UVD}/{name}.npz", keys)    # app layout before collapse
     cur = np.empty(len(me.loops) * 2, np.float32)
     me.uv_layers["Lightmap"].data.foreach_get("uv", cur)
     cur = cur.reshape(-1, 2).astype(np.float64)
+    # metal mode needs no comparison with the layout (the export matched its UVs, 1 cm fallback included)
+    orig = cur if mode == "metal" else by_key(f"{UVD}/{name}.npz", keys)    # app layout before collapse
     n = len(me.polygons)
     ls = np.empty(n, np.int32); me.polygons.foreach_get("loop_start", ls)
     lt = np.empty(n, np.int32); me.polygons.foreach_get("loop_total", lt)
