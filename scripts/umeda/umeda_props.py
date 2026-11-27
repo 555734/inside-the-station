@@ -23,7 +23,7 @@ def hydrant(name, x, y, face, M, cname, zf):
     right = (-face, 0, 0)
     _q(name + "_sign", (x, yf, zf + 1.45), right, (0, 0, 1), 0.62, 0.2, M["hydrant"], cname)
     H.bx(name + "_hdl", (x + 0.30, min(yf, yf + face * 0.03), zf + 0.85), (x + 0.33, max(yf, yf + face * 0.03), zf + 1.05), M["steel"], cname)
-    H.put(H.B.sphere(name + "_lamp", (x, y + face * 0.06, zf + 1.78), 0.06, M["lamp_red"], scale=(1, 0.6, 1)), cname)
+    H.put(H.B.sphere(name + "_lamp", (x, y + face * 0.06, zf + 1.65 + 0.055), 0.06, M["lamp_red"], scale=(1, 0.6, 1)), cname)
 
 
 def aed(name, x, y, face, M, cname, zf):
@@ -34,10 +34,11 @@ def aed(name, x, y, face, M, cname, zf):
 
 
 def extinguisher(name, x, y, face, M, cname, zf):
-    cy = y + face * 0.12
-    H.put(H.B.cylinder(name, (x, cy, zf + 0.30), 0.085, 0.55, M["paint_red"], segs=24), cname)
-    H.put(H.B.cylinder(name + "_top", (x, cy, zf + 0.62), 0.03, 0.09, M["handrail"], segs=12), cname)
-    _q(name + "_sign", (x, y + face * 0.003, zf + 1.05), (-face, 0, 0), (0, 0, 1), 0.36, 0.12, M["hydrant"], cname)
+    """Red extinguisher standing on the floor against the wall, its 消火器 sign on the wall above."""
+    cy = y + face * 0.088
+    H.put(H.B.cylinder(name, (x, cy, zf + 0.275), 0.085, 0.55, M["paint_red"], segs=24), cname)
+    H.put(H.B.cylinder(name + "_top", (x, cy, zf + 0.59), 0.03, 0.09, M["handrail"], segs=12), cname)
+    _q(name + "_sign", (x, y + face * 0.003, zf + 1.05), (-face, 0, 0), (0, 0, 1), 0.36, 0.12, M["fire_ext"], cname)
 
 
 def estop_on_column(name, cx, cy, r, toward, M, cname, zf):

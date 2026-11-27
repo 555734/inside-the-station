@@ -3,6 +3,7 @@ extends Node3D
 ## adds collision, reflection probes, the walker and the touch UI.
 
 const SHADER := preload("res://station.gdshader")
+const GLASS := preload("res://station_glass.gdshader")
 const FLOORS := ["b2s", "b2bands", "b1_floor2"]
 
 var meta := {}
@@ -29,7 +30,7 @@ const PROBE_SLOTS := 32
 const PROBES_ON := 24
 const PROBES_KEEP := 30
 ## Lightmap streaming. Every chunk always has its 1/8 size stand-in; the full lightmap is in memory
-## only where it can be on screen: underground all of the station (B1, B2, stairs) and the street
+## only where it can be seen up close: underground the station chunks (B1, B2, stairs) and the street
 ## chunks within NEAR_LOAD m (the exit stairs and what is seen up them); up the exit stairs and in
 ## the street all of the street and the station chunks within NEAR_LOAD m (seen down the stairs),
 ## never the platform level; down on the platform level none of the street. Full lightmaps load
@@ -117,6 +118,15 @@ func _lin2srgb(c: Array) -> Color:
 func _material(name: String, lm: Texture2D) -> ShaderMaterial:
 	var d: Dictionary = mats.get(name, {})
 	var m := ShaderMaterial.new()
+	if d.has("alpha"):
+		# see-through glass (balustrades)
+		m.shader = GLASS
+		if d.has("color"):
+			m.set_shader_parameter("albedo_color", _lin2srgb(d["color"]))
+		m.set_shader_parameter("alpha", float(d["alpha"]))
+		m.set_shader_parameter("roughness_val", float(d.get("roughness", 0.03)))
+		m.set_shader_parameter("lightmap", lm)
+		return m
 	m.shader = SHADER
 	if d.has("albedo"):
 		m.set_shader_parameter("albedo_tex", _tex(d["albedo"]))
@@ -417,7 +427,10 @@ func _want_full(c: Dictionary, eye: Vector3) -> bool:
 		return near and lvl != "B2"
 	if lvl == "UP":
 		return near and not platform_mode
-	return true
+	# underground too only what is within NEAR_LOAD (beyond it the GPU would sample the full map
+	# at about the stand-in's resolution anyway): keeps the high-quality (ASTC) lightmaps' memory
+	# to what the ETC2 ones took for the whole underground
+	return near
 
 
 func _set_lm(c: Dictionary, t: Texture2D) -> void:

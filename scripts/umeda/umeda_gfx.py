@@ -356,12 +356,26 @@ def decal(color, up):
     return add_print_texture(im, 40 + int(up), 3.0)
 
 
-def psd_label():
+def psd_label(track=2, direction="新大阪方面", car=1, door=3):
     im = Image.new("RGB", (360, 280), (250, 250, 250))
     d = ImageDraw.Draw(im)
     d.rectangle([0, 0, 360, 70], fill=RED)
-    text(d, (180, 36), "2  新大阪方面", F("sansB", 40), (255, 255, 255), "mm")
-    text(d, (180, 170), "1-3", F("sansB", 120), (30, 30, 30), "mm")
+    text(d, (180, 36), f"{track}  {direction}", F("sansB", 40), (255, 255, 255), "mm")
+    text(d, (180, 170), f"{car}-{door}", F("sansB", 120), (30, 30, 30), "mm")
+    return im
+
+
+PSD_ATLAS = (8, 5)        # columns, rows of 360 x 280 labels: car c door d at index (c-1)*4 + d-1
+
+
+def psd_label_atlas(track, direction):
+    """Every car / door label of one track in one image (the quads pick their cell by UV)."""
+    cols, rows = PSD_ATLAS
+    im = Image.new("RGB", (360 * cols, 280 * rows), (250, 250, 250))
+    for c in range(1, 11):
+        for dr in range(1, 5):
+            i = (c - 1) * 4 + dr - 1
+            im.paste(psd_label(track, direction, c, dr), ((i % cols) * 360, (i // cols) * 280))
     return im
 
 
@@ -547,6 +561,15 @@ def hydrant_sign():
     return im
 
 
+def fire_ext_sign():
+    W, H = 450, 150
+    im = Image.new("RGB", (W, H), (210, 25, 30))
+    d = ImageDraw.Draw(im)
+    text(d, (W / 2, 66), "消火器", F("sansB", 86), (255, 255, 255), "mm")
+    text(d, (W / 2, 128), "FIRE EXTINGUISHER", F("sansM", 28), (255, 255, 255), "mm")
+    return im
+
+
 def aed_sign():
     W, H = 400, 300
     im = Image.new("RGB", (W, H), (0, 140, 80))
@@ -595,6 +618,9 @@ def build_all():
         "decal_up": decal((220, 40, 40), True),
         "decal_down": decal((40, 110, 210), False),
         "psd_label": psd_label(),
+        "psd_label_1": psd_label_atlas(1, "なんば方面"),
+        "psd_label_2": psd_label_atlas(2, "新大阪方面"),
+        "fire_ext": fire_ext_sign(),
         "name_board_w": name_board2(("M17", "淀屋橋", "よどやばし", "Yodoyabashi"), ("M15", "中津", "なかつ", "Nakatsu")),
         "name_board_e": name_board2(("M15", "中津", "なかつ", "Nakatsu"), ("M17", "淀屋橋", "よどやばし", "Yodoyabashi")),
         "dep1": dep_board(1, [("11:56", "先発", "なかもず", "M30"), ("11:58", "次発", "天王寺", "M23")]),

@@ -25,6 +25,10 @@ uniform float emission_strength = 0.0;
 
 uniform sampler2D lightmap : filter_linear_mipmap, repeat_disable;
 uniform float lm_gain = 1.0;
+// a metal shows its lit surroundings: the lightmap holds the light arriving at it (baked as if
+// it were not metal), and this share of it comes back off the rough metal; the reflection probes
+// add the sharp part on top (where none reaches, stainless no longer goes black)
+uniform float metal_env = 0.55;
 
 // large-scale wear on floors: gloss and tone vary across the station like a real worn floor
 uniform sampler2D wear_tex : filter_linear_mipmap, repeat_enable;
@@ -61,7 +65,7 @@ void fragment() {
 	METALLIC = metallic_val;
 	ROUGHNESS = clamp(r, 0.04, 1.0);
 	SPECULAR = 0.5;
-	EMISSION = alb * (1.0 - metallic_val) * irradiance * lm_gain + em;
+	EMISSION = alb * ((1.0 - metallic_val) + metallic_val * metal_env) * irradiance * lm_gain + em;
 	if (coat > 0.0) {
 		CLEARCOAT = coat;
 		CLEARCOAT_ROUGHNESS = 0.06;

@@ -151,10 +151,14 @@ jobs:
               ch = sorted(json.load(open("/tmp/layout/uv/index.json")).get("changed", []))
               mine = ch[part - 1:part]
           elif "auto_parts" in r:
-              # largest first into the lightest bin: every runner gets about the same pixels
+              # largest first into the lightest bin: every runner gets about the same pixels;
+              # "bake_set": only chunks whose name starts with one of these (others keep theirs);
+              # "elsewhere": chunks baked on other machines (Kaggle, local)
               n = r["auto_parts"]
               bins = [[0, []] for _ in range(n)]
-              for name in sorted(sizes, key=lambda c: (-sizes[c] ** 2, c)):
+              pick = [c for c in sizes if (not r.get("bake_set") or any(c.startswith(p) for p in r["bake_set"]))
+                      and c not in set(r.get("elsewhere", []))]
+              for name in sorted(pick, key=lambda c: (-sizes[c] ** 2, c)):
                   b = min(range(n), key=lambda i: (bins[i][0], i))
                   bins[b][0] += sizes[name] ** 2
                   bins[b][1].append(name)

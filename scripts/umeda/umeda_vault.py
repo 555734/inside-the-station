@@ -420,7 +420,8 @@ def downlights(V, M):
 def led_screen(V, M):
     L = 40.0
     xs0 = V.x0 + (V.x1 - V.x0 - L) / 2
-    ob = arc_strip("led_vision", V, V.led_s[0], V.led_s[1], xs0, xs0 + L, 0.10, M["led_vision"], uv_flip=False)
+    # the screen sits on its bezel, the bezel on the vault (no gap to see the ceiling through)
+    ob = arc_strip("led_vision", V, V.led_s[0], V.led_s[1], xs0, xs0 + L, 0.035, M["led_vision"], uv_flip=False)
     # the image runs along x; arc_strip puts u along x (0..1) and v along the arc
     me = ob.data
     uvl = me.uv_layers["UVMap"]
@@ -429,7 +430,7 @@ def led_screen(V, M):
             u, v = uvl.data[li].uv
             uvl.data[li].uv = (u, 1.0 - v)
     # black bezel behind and around
-    arc_strip("led_bezel", V, V.led_s[0] - 0.12, V.led_s[1] + 0.12, xs0 - 0.12, xs0 + L + 0.12, 0.08, M["panel_grey"])
+    arc_strip("led_bezel", V, V.led_s[0] - 0.12, V.led_s[1] + 0.12, xs0 - 0.12, xs0 + L + 0.12, 0.012, M["panel_grey"])
     # LED light on the room (soft, coloured by the content in reality: use a neutral-cool fill)
     sm = (V.led_s[0] + V.led_s[1]) / 2
     y, z = V.at_s(np.array([sm]))

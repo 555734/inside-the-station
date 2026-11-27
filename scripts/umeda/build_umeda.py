@@ -411,7 +411,10 @@ def materials():
     M["gate_yellow"] = B.plain("gate_yellow", (0.80, 0.55, 0.04), 0.35, coat=0.3)
     M["stair"] = stone("stair_granite", 0.6, 0.20, 31, N=1024, size=1.2, speck=0.08, rough=0.35, tint=(1.0, 1.0, 1.02))
     M["nosing"] = B.plain("nosing", (0.75, 0.6, 0.12), 0.5)
-    M["glass_rail"] = B.plain("glass_rail", (0.55, 0.6, 0.6), 0.06, coat=1.0)
+    # clear glass balustrades: mostly transparent (light and shadow rays pass), a faint green-grey
+    # tint and a gloss for the reflections; the app draws it see-through (alpha in materials.json)
+    M["glass_rail"] = B.plain("glass_rail", (0.80, 0.88, 0.86), 0.03, coat=1.0)
+    M["glass_rail"].node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 0.14
     M["tactile"] = tactile_mat("tactile", "dots")
     M["tactile_bar"] = tactile_mat("tactile_bar", "bars")
     M["bench"] = B.plain("bench", (0.55, 0.55, 0.56), 0.3, metal=0.8)
@@ -444,6 +447,8 @@ def materials():
     M["portal"] = B.plain("portal", (0.012, 0.012, 0.014), 0.12, coat=0.6)
     M["portal_sign"] = B.printed("portal_sign", gfx["portal_sign"], rough=0.3, coat=0.0, emission=1.4)
     M["psd_label"] = B.printed("psd_label", gfx["psd_label"], rough=0.35, coat=0.0)
+    for k in ("psd_label_1", "psd_label_2", "fire_ext"):
+        M[k] = B.printed(k, gfx[k], rough=0.35, coat=0.0)
     M["ceil_b2"] = panels("ceil_b2b", 1.2, 0.6, 0.006, (0.30, 0.30, 0.30), (0.08, 0.08, 0.08), 0.40, perf=0.010, seed=27)
     M["col_steel"] = B.plain("col_steel", (0.70, 0.70, 0.69), 0.20, metal=1.0)
     M["wall_white"] = glazed("wall_white", 0.60, 0.30, 0.5, (0.70, 0.70, 0.68), (0.32, 0.32, 0.31), size=2.4)
@@ -484,11 +489,67 @@ def materials():
 
 
 
+# Doorways cut through the map's wall lines where a passage to an exit was closed off from the
+# concourse (check_scene.py: no gate led to it): (x0, y0, x1, y1)
+B1_OPENINGS = [
+    (-1.6, 24.0, 1.2, 27.2),       # exit 6: the passage beside the central hall
+    (12.7, 26.3, 14.4, 28.0),      # exits 10 / 11: the north passage, at its west end
+    (99.5, 25.6, 100.7, 26.9),     # exit 10: its stair foot
+]
+
+
+def _cut_openings(polys, rects):
+    """Polygons with the rectangles taken out (raster at 2 cm, traced back; untouched if clear)."""
+    import cv2
+    out = []
+    res = 0.02
+    for poly in polys:
+        r = np.array(poly[0], float)
+        mn, mx = r.min(0), r.max(0)
+        hit = [q for q in rects if q[0] < mx[0] and q[2] > mn[0] and q[1] < mx[1] and q[3] > mn[1]]
+        if not hit:
+            out.append(poly)
+            continue
+        o = mn - 0.1
+        d = mx - mn
+        W, H = int((d[0] + 0.2) / res) + 1, int((d[1] + 0.2) / res) + 1
+        m = np.zeros((H, W), np.uint8)
+        cv2.fillPoly(m, [np.round((r - o) / res).astype(np.int32)], 1)
+        for hole in poly[1:]:
+            cv2.fillPoly(m, [np.round((np.array(hole, float) - o) / res).astype(np.int32)], 0)
+        for q in hit:
+            a = np.floor((np.array(q[:2]) - o) / res).astype(int)
+            b = np.ceil((np.array(q[2:]) - o) / res).astype(int)
+            m[max(0, a[1]):max(0, b[1]), max(0, a[0]):max(0, b[0])] = 0
+        # no sliver thinner than 10 cm left at a cut edge (the map's walls are 18 cm and more)
+        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        cs, hier = cv2.findContours(m, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        if hier is None:
+            continue
+        for k, cnt in enumerate(cs):
+            if hier[0][k][3] != -1 or cv2.contourArea(cnt) * res * res < 0.02:
+                continue
+            rings = [_wind(cv2.approxPolyDP(cnt, 1.0, True).reshape(-1, 2) * res + o, True)]
+            ch = hier[0][k][2]
+            while ch != -1:
+                hp = cv2.approxPolyDP(cs[ch], 1.0, True).reshape(-1, 2) * res + o
+                if len(hp) >= 3:
+                    rings.append(_wind(hp, False))
+                ch = hier[0][ch][0]
+            if len(rings[0]) >= 3:
+                out.append(rings)
+    return out
+
+
 def build_b1(M):
     c = "B1"
     for i, poly in enumerate(PLAN["b1_floor"]):
         prism(f"b1_floor_{i}", poly, Z_B1 - 0.35, Z_B1, M["b1_floor"], c, uv_scale=2.4)
-    for i, poly in enumerate(PLAN["b1_walls"]):
+    # the floor outline went round the wall lines the doorways cut: floor in the doorway (just under
+    # the concourse floor where they overlap)
+    for i, (x0, y0, x1, y1) in enumerate(B1_OPENINGS):
+        prism(f"b1_floor_door_{i}", [[(x0, y0), (x1, y0), (x1, y1), (x0, y1)]], Z_B1 - 0.35, Z_B1 - 0.002, M["b1_floor"], c, uv_scale=2.4)
+    for i, poly in enumerate(_cut_openings(PLAN["b1_walls"], B1_OPENINGS)):
         cen, area = poly_centroid_area(poly)
         if area < 2.5:   # free-standing columns: enamel cladding with stainless skirting
             prism(f"b1_col_{i}", poly, Z_B1 + 0.15, Z_B1 + H_B1, M["column"], c)
@@ -579,7 +640,7 @@ def build_b1_corridor(M):
     for k in ("F", "G", "H"):
         st = PLAN["stairs"][k]
         xs = st["x_top"] - 0.8
-        hang_sign(f"ps_{k}", xs, (yn + ys) / 2 + 0.8, M["b1_sign_down"], M["b1_sign_down"], c, z_top=Z_B1 + H_B1 + 1.2, w=4.2, h=0.62)
+        hang_sign(f"ps_{k}", xs, (yn + ys) / 2 + 0.8, M["b1_sign_down"], M["b1_sign_down"], c, w=4.2, h=0.62)
 
 
 def hang_sign(name, x, y, mat_front, mat_back, cname, along="x", z_top=None, w=2.6, h=0.48):
@@ -602,6 +663,63 @@ def hang_sign(name, x, y, mat_front, mat_back, cname, along="x", z_top=None, w=2
             put(ob, cname)
 
 
+EDGE_CLEAR = 1.5     # platform strip along each edge kept free of the map's walls (m)
+
+
+def _clear_platform_edges(polys):
+    """The map draws each platform edge as a thick line, which the vectoriser took for a wall: a
+    wall stood right behind the screen doors (no track to be seen) and along the platform ends.
+    Wall polygons lose their part within EDGE_CLEAR of either edge; columns (small polygons) stay.
+    Rasterised at 2 cm and traced back, so concave walls are cut cleanly (no zero-width bridges)."""
+    import cv2
+    up, lo = PLAN["edges_y"]["up"], PLAN["edges_y"]["lo"]
+    out = []
+    res = 0.02
+    for poly in polys:
+        r = np.array(poly[0], float)
+        mn, mx = r.min(0), r.max(0)
+        d = mx - mn
+        small = max(d) <= 1.6 and min(d) <= 1.4
+        if small or (mx[1] <= up - EDGE_CLEAR and mn[1] >= lo + EDGE_CLEAR):
+            out.append(poly)
+            continue
+        o = mn - 0.1
+        W, H = int((d[0] + 0.2) / res) + 1, int((d[1] + 0.2) / res) + 1
+        m = np.zeros((H, W), np.uint8)
+        cv2.fillPoly(m, [np.round((r - o) / res).astype(np.int32)], 1)
+        for hole in poly[1:]:
+            cv2.fillPoly(m, [np.round((np.array(hole, float) - o) / res).astype(np.int32)], 0)
+        ys = o[1] + np.arange(H) * res
+        m[(ys > up - EDGE_CLEAR) | (ys < lo + EDGE_CLEAR), :] = 0
+        cs, hier = cv2.findContours(m, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        if hier is None:
+            continue
+        for k, cnt in enumerate(cs):
+            if hier[0][k][3] != -1:
+                continue
+            outer = cv2.approxPolyDP(cnt, 1.0, True).reshape(-1, 2) * res + o
+            if len(outer) < 3 or cv2.contourArea(cnt) * res * res < 0.05:
+                continue
+            rings = [_wind(outer, True)]
+            ch = hier[0][k][2]
+            while ch != -1:
+                hp = cv2.approxPolyDP(cs[ch], 1.0, True).reshape(-1, 2) * res + o
+                if len(hp) >= 3:
+                    rings.append(_wind(hp, False))
+                ch = hier[0][ch][0]
+            out.append(rings)
+    return out
+
+
+def _wind(pts, ccw):
+    """Ring as tuples, counter-clockwise (outer rings) or clockwise (holes) seen from above."""
+    p = np.asarray(pts, float)
+    a = np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+    if (a > 0) != ccw:
+        p = p[::-1]
+    return [tuple(map(float, q)) for q in p]
+
+
 def build_b2(M):
     c = "B2"
     vx0, vx1 = PLAN["vault"]["x0"], PLAN["vault"]["x1"]
@@ -613,12 +731,12 @@ def build_b2(M):
     for yE, sgn_, nm in ((PLAN["edges_y"]["up"], -1, "e"), (PLAN["edges_y"]["lo"], 1, "w")):
         y_a, y_b = sorted((yE, yE + sgn_ * 1.6))
         rect(f"b2_edgefill_{nm}", px0_, y_a, px1_, y_b, Z_B2 - 0.0015, M["b2_floor"], c, True, 2.4)
-    for i, poly in enumerate(PLAN["b2_walls"]):
+    for i, poly in enumerate(_clear_platform_edges(PLAN["b2_walls"])):
         cen, area = poly_centroid_area(poly)
         in_vault = vx0 < cen[0] < vx1 and yv_w < cen[1] < yv_e
-        if in_vault and area < 3.0:
-            r = np.array(poly[0])
-            kiosk(f"kiosk_{i}", r.min(0) + 0.2, r.max(0) - 0.2, M, i)
+        rr = np.array(poly[0])
+        if in_vault and area < 3.0 and min(rr.max(0) - rr.min(0)) >= 0.8:
+            kiosk(f"kiosk_{i}", rr.min(0) + 0.2, rr.max(0) - 0.2, M, i)
             continue
         r = np.array(poly[0])
         lo_, hi_ = r.min(0), r.max(0)
@@ -669,6 +787,7 @@ def build_b2(M):
     floor_band(M)
     guide_lines(M)
     build_psd(M)
+    build_psd_ends(M)
     build_tactile(M)
     build_b2_lights(M)
     build_b2_signs(M)
@@ -879,13 +998,53 @@ def floor_band(M):
     rect("floor_band", 30.0, y0, 89.6, y1, Z_B2 + 0.0015, M["b2_floor_band"], "B2", True, 2.4)
 
 
+PSD_RANGE = {}
+
+
+def _atlas_uv(ob, i, grid):
+    cols, rows = grid
+    u0, v1 = (i % cols) / cols, 1.0 - (i // cols) / rows
+    u1, v0 = u0 + 1.0 / cols, v1 - 1.0 / rows
+    uvl = ob.data.uv_layers["UVMap"]
+    for li, (u, v) in zip(range(4), ((u0, v0), (u1, v0), (u1, v1), (u0, v1))):
+        uvl.data[li].uv = (u, v)
+
+
+def build_psd_ends(M):
+    """Fixed fence panels on from the screen doors to the ends of the platform floor (no open
+    platform edge beyond the doors), same cabinets without doors."""
+    import cv2
+    walk = [np.array(p[0], np.float32).reshape(-1, 1, 2) for p in PLAN["b2_floor"]]
+
+    def on_floor(x, y):
+        return any(cv2.pointPolygonTest(w, (float(x), float(y)), False) >= 0 for w in walk)
+    ye, yw = PLAN["edges_y"]["up"], PLAN["edges_y"]["lo"]
+    k = 0
+    for y, side, nm in ((ye, -1, "e"), (yw, 1, "w")):
+        y_in = y + side * 0.30
+        a0, a1 = PSD_RANGE[nm]
+        for xs, step in ((a0, -1), (a1, 1)):
+            x = xs
+            while B2_END[0] < x + step * 0.5 < B2_END[1] and on_floor(x + step * 0.5, y + side * 1.0):
+                x += step * 0.5
+            lo_, hi_ = sorted((xs, x))
+            if hi_ - lo_ < 0.4:
+                continue
+            for qa in np.arange(lo_, hi_ - 1e-6, 2.0):
+                qb = min(qa + 2.0, hi_)
+                bx(f"psd_end_{nm}_{k}", (qa, y_in - 0.16, Z_B2), (qb, y_in + 0.16, Z_B2 + 1.35), M["psd_panel"], "B2", 0.02)
+                bx(f"psd_endtop_{nm}_{k}", (qa + 0.02, y_in - 0.165, Z_B2 + 1.30), (qb - 0.02, y_in + 0.165, Z_B2 + 1.36), M["steel"], "B2", 0.01)
+                k += 1
+
+
 def build_psd(M):
     """Platform screen doors (2021): white pocket cabinets between stainless door leaves with tall windows."""
     ye, yw = PLAN["edges_y"]["up"], PLAN["edges_y"]["lo"]
     px0, px1 = PLAN["plat_x"]
-    for y, side, nm, length in ((ye, -1, "e", 197.0), (yw, 1, "w", 201.0)):
+    for y, side, nm, length, track in ((ye, -1, "e", 197.0, 1), (yw, 1, "w", 201.0, 2)):
         y_in = y + side * 0.30
         xa = (px0 + px1) / 2 - length / 2
+        PSD_RANGE[nm] = (xa - 1.0, xa + length + 1.0)
         car = length / 10
         doors = []
         for cidx in range(10):
@@ -903,10 +1062,13 @@ def build_psd(M):
             for xs_ in np.arange(a + 0.6, b - 0.3, 0.6):
                 bx(f"psd_{nm}_seam_{k}_{xs_:.1f}", (xs_ - 0.002, min(yf_, yf_ + side * 0.002), Z_B2 + 0.12), (xs_ + 0.002, max(yf_, yf_ + side * 0.002), Z_B2 + 1.28), M["panel_grey"], "B2")
             bx(f"psd_{nm}_kick_{k}", (a + 0.01, min(yf_, yf_ + side * 0.004), Z_B2), (b - 0.01, max(yf_, yf_ + side * 0.004), Z_B2 + 0.10), M["steel_brushed"], "B2")
-            # red car / door number label on the platform face
-            if b - a > 0.8:
+            # red car / door number label on the platform face: the door next to the cabinet,
+            # cars counted from the front of the train (track 1 runs to +x, track 2 to -x)
+            if b - a > 0.8 and k < len(doors):
                 yl = y_in + side * 0.166
-                q = B.image_quad(f"psd_{nm}_lab_{k}", ((a + b) / 2, yl, Z_B2 + 1.08), (-side, 0, 0), (0, 0, 1), 0.36, 0.28, M["psd_label"])
+                q = B.image_quad(f"psd_{nm}_lab_{k}", ((a + b) / 2, yl, Z_B2 + 1.08), (-side, 0, 0), (0, 0, 1), 0.36, 0.28, M[f"psd_label_{track}"])
+                di = (len(doors) - 1 - k) if track == 1 else k      # door k, counted from the front
+                _atlas_uv(q, di, UG.PSD_ATLAS)
                 put(q, "B2")
             k += 1
         vx0, vx1 = PLAN["vault"]["x0"], PLAN["vault"]["x1"]
@@ -933,11 +1095,12 @@ def build_psd(M):
 
 
 def build_tactile(M):
+    """Warning line 1 m in from each edge, along the screen doors (where trains stop)."""
     ye, yw = PLAN["edges_y"]["up"], PLAN["edges_y"]["lo"]
-    px0, px1 = PLAN["plat_x"]
     for y, side, nm in ((ye, -1, "e"), (yw, 1, "w")):
         yc = y + side * 1.0
-        bx(f"tactile_{nm}", (px0 + 3, yc - 0.15, Z_B2), (px1 - 3, yc + 0.15, Z_B2 + 0.006), M["tactile"], "B2")
+        a0, a1 = PSD_RANGE[nm]
+        bx(f"tactile_{nm}", (a0 + 0.5, yc - 0.15, Z_B2), (a1 - 0.5, yc + 0.15, Z_B2 + 0.006), M["tactile"], "B2")
 
 
 def build_b2_lights(M):
@@ -956,6 +1119,15 @@ def build_b2_lights(M):
                 put(bpy.data.objects[f"ledA_{k}"], "B2_lights")
                 k += 1
             x += 5.6
+
+
+def over_stair(x, y, margin=0.0):
+    """Is (x, y) over a stair / escalator opening (no ceiling at the platform level there)?"""
+    for st in PLAN["stairs"].values():
+        xa, xb = sorted((st["x_top"], st["x_bot"]))
+        if xa - margin < x < xb + margin and st["y0"] - margin < y < st["y1"] + margin:
+            return True
+    return False
 
 
 def build_b2_signs(M):
@@ -983,6 +1155,8 @@ def build_b2_signs(M):
         for y, img, nm in ((13.0, "dep1", "e"), (-6.0, "dep2", "w")):
             if vx0 - 3 < x < vx1 + 3 and y < 1:
                 continue
+            if over_stair(x, y, 1.8):
+                continue            # no ceiling over a stair opening to hang it from
             zc = Z_B2_CEIL - 0.55
             bx(f"dbbody_{nm}_{x:.0f}", (x - 0.12, y - 1.0, zc - 0.32), (x + 0.12, y + 1.0, zc + 0.32), M["panel_grey"], "B2", 0.01)
             for sgn_, im in ((-1, img), (1, img)):
@@ -997,6 +1171,8 @@ def build_b2_signs(M):
         for y, img, nm in ((15.0, "track1", "e"), (-4.5, "track2", "w")):
             if vx0 - 2 < x < vx1 + 2 and y < 1:
                 continue          # no hanging signs under the arch (photos)
+            if over_stair(x, y, 1.6):
+                continue
             zc = Z_B2_CEIL - 0.6
             ztop = Z_B2_CEIL
             B.image_quad(f"ts_{nm}_{x:.0f}", (x - 0.06, y, zc), (0, -1, 0), (0, 0, 1), 2.6, 0.52, M[img])
@@ -1010,7 +1186,11 @@ def build_b2_signs(M):
 
 # ------------------------------------------------------------- stairs, gates, exits
 
-def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, lower=None):
+def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, lower=None,
+           rails=("wall", "post", "wall"), wall_y=(None, None)):
+    """A straight flight (with a landing) from x_top down to x_bot between y0 and y1. rails: the
+    kind of the y0-side, centre and y1-side handrails ("wall": on brackets from the wall at
+    wall_y, or at the flight's side; "post": on posts standing on the treads)."""
     rise = z_top - z_bot
     n = int(round(rise / 0.17))
     riser = rise / n
@@ -1057,7 +1237,7 @@ def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, low
                 return z_bot + k_ * riser
         return zq
 
-    for yy, kind in ((y0 + 0.08, "wall"), ((y0 + y1) / 2, "post"), (y1 - 0.08, "wall")):
+    for yy, kind in ((y0 + 0.08, rails[0]), ((y0 + y1) / 2, rails[1]), (y1 - 0.08, rails[2])):
         tube_rail(f"{name}_hr{yy:.1f}", [(px_, yy, pz) for (px_, pz) in rail_path], 0.02, M["handrail_steel"], cname)
         length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(rail_path[:-1], rail_path[1:]))
         step = 1.5 if kind == "post" else 1.2
@@ -1078,7 +1258,10 @@ def flight(name, x_top, x_bot, y0, y1, z_top, z_bot, M, cname, landing=True, low
                 put(B.cylinder(f"{name}_post{j}", (xq, yy, (zt + zq) / 2), 0.022, zq - zt, M["handrail_steel"], segs=12), cname)
                 put(B.cylinder(f"{name}_base{j}", (xq, yy, zt + 0.004), 0.06, 0.008, M["handrail_steel"], segs=16), cname)
             else:
-                yw = y0 - 0.0 if yy < (y0 + y1) / 2 else y1
+                if yy < (y0 + y1) / 2:
+                    yw = y0 if wall_y[0] is None else wall_y[0]
+                else:
+                    yw = y1 if wall_y[1] is None else wall_y[1]
                 ya_, yb_ = sorted((yw, yy))
                 bx(f"{name}_br{yy:.1f}_{j}", (xq - 0.012, ya_, zq - 0.075), (xq + 0.012, yb_, zq - 0.055), M["handrail_steel"], cname)
                 bx(f"{name}_brv{yy:.1f}_{j}", (xq - 0.008, yy - 0.008, zq - 0.075), (xq + 0.008, yy + 0.008, zq - 0.018), M["handrail_steel"], cname)
@@ -1215,7 +1398,10 @@ def stair_esc(k, M, portal_sign=True, under_vault=True):
     sgn = 1 if x_bot > x_top else -1          # +1: descends toward +x
     y0, y1 = st["y0"], st["y1"]
     ys = y1 - 1.85                     # stair | escalator split
-    flight(f"st{k}s", x_top, x_bot, y0 + 0.2, ys - 0.1, Z_B1, Z_B2, M, c, lower=14)
+    # the east side of the stair is the escalator (no wall): its handrail stands on posts; the west
+    # one is on brackets from the parapet (J) or the stairwell wall 0.2 m out (I)
+    flight(f"st{k}s", x_top, x_bot, y0 + 0.2, ys - 0.1, Z_B1, Z_B2, M, c, lower=14,
+           rails=("wall", "post", "post"), wall_y=(y0 + 0.2 if under_vault else y0, None))
     escalator(f"esc{k}", x_top, x_bot, ys, y1 - 0.1, M, c)
     if under_vault:
         parapet(f"st{k}_pw", x_top, x_bot, y0 - 0.05, y0 + 0.2, M, c)
@@ -1271,83 +1457,162 @@ def guide_lines(M):
     bx("gl_j_foot", (xb - 0.3, yw + 2.05, Z_B2), (xb, st["y1"] + 0.4, Z_B2 + 0.007), M["tactile"], c)
 
 
+GATE_PITCH = 1.0           # cabinet centre to centre along the gate line (0.65 m clear passage)
+GATE_BANKS = {"北改札": 8, "中北西改札": 5, "中北東改札": 7, "南改札": 9, "連絡改札": 8}   # passages (photos)
+GATE_LAYOUT = {}           # gate line -> [(kind, (x, y), (x, y))]: what stands along it, end to end
+# Each gate line wall to wall (the map draws only the gates; these run on to the walls the paid area
+# is closed by, read off the built concourse: check_scene.py's flood fill finds no way around).
+GATE_LINES = {
+    "北改札": [(-119.3, 17.3), (-121.2, 17.2), (-125.3, 9.3), (-127.0, 1.9), (-127.13, -9.3), (-118.6, -9.3)],
+    "中北西改札": [(2.2, 7.4), (2.2, -15.4)],
+    "中北東改札": [(23.5, 16.1), (20.9, 15.9), (17.6, 7.5), (17.6, -16.8), (21.5, -17.4)],
+    "南改札": [(111.2, 16.0), (113.3, 16.0), (113.6, -9.8), (110.2, -9.8)],
+}
+
+
+def _gate_cabinet(k, p, ang, gsg, i, n, M):
+    """One gate cabinet at p (its long side along the passage, angle ang); i of 0..n in its bank."""
+    ca, sa = math.cos(ang), math.sin(ang)
+    parts = [
+        ((0, 0, 0.49), (1.70, 0.27, 0.98), M["gate_side"], 0.06),
+        ((0, 0, 0.99), (1.62, 0.28, 0.03), M["gate_top"], 0.012),
+        # flap doors retracted (the gates stand open; they close only on a refused card)
+        ((0.05, 0.150, 0.74), (0.36, 0.05, 0.30), M["gate_yellow"], 0.015),
+        ((0.05, -0.150, 0.74), (0.36, 0.05, 0.30), M["gate_yellow"], 0.015),
+    ]
+    for j_, (off, size, mat, bev) in enumerate(parts):
+        if j_ >= 2 and (i == 0 and j_ == 3 or i == n and j_ == 2):
+            continue          # no flap on the outer side of the end cabinets
+        ob = B.box(f"gate_{k}_{j_}", (0, 0, 0), size, mat, bev)
+        ob.location = (p.x + ca * off[0] - sa * off[1], p.y + sa * off[0] + ca * off[1], Z_B1 + off[2])
+        ob.rotation_euler = (0, 0, ang)
+        put(ob, "B1")
+
+    def at(u, v, z):
+        return (p.x + ca * u - sa * v, p.y + sa * u + ca * v, Z_B1 + z)
+    fwd = (ca, sa, 0)
+    side_v = (-sa, ca, 0)
+    for su in (-1, 1):
+        u = su * 0.55 * gsg
+        # IC reader (textured, glowing) and the ticket slot / small display on the top
+        put(B.image_quad(f"gate_{k}_ic{su}", at(u, 0, 1.0065), fwd if su * gsg < 0 else (-ca, -sa, 0), side_v if su * gsg < 0 else (sa, -ca, 0), 0.15, 0.20, M["ic_reader"]), "B1")
+        sl = B.box(f"gate_{k}_slot{su}", (0, 0, 0), (0.012, 0.10, 0.004), M["handrail"])
+        sl.location = at(su * 0.25 * gsg, 0, 1.006)
+        sl.rotation_euler = (0, 0, ang)
+        put(sl, "B1")
+        put(B.image_quad(f"gate_{k}_lcd{su}", at(su * 0.32 * gsg, 0.0, 1.0068), fwd, side_v, 0.06, 0.10, M["dep1"]), "B1")
+        # end-face indicator: arrow on the entry side, arrow or cross on the exit side
+        ok = su < 0 or i % 3 != 0
+        nrmv = (su * gsg * ca, su * gsg * sa, 0)
+        rgt = (-nrmv[1], nrmv[0], 0)
+        put(B.image_quad(f"gate_{k}_ind{su}", at(su * 0.856 * gsg, 0, 0.78), rgt, (0, 0, 1), 0.12, 0.12, M["gate_ok" if ok else "gate_ng"]), "B1")
+        put(B.image_quad(f"gate_{k}_pnl{su}", at(su * 0.856 * gsg, 0, 0.60), rgt, (0, 0, 1), 0.14, 0.16, M["ic_reader"]), "B1")
+
+
+def gate_fence(name, a, b, M, cname="B1"):
+    """Fixed fence along a gate line (photos): stainless posts and rails with white infill panels,
+    1.1 m high, from a to b (x, y) on the concourse floor."""
+    a, b = Vector((a[0], a[1], 0)), Vector((b[0], b[1], 0))
+    d = b - a
+    L = d.length
+    if L < 0.05:
+        return
+    t = d / L
+    ang = math.atan2(t.y, t.x)
+    n = max(1, int(math.ceil(L / 1.5)))
+    for i in range(n + 1):
+        p = a + t * (L * i / n)
+        put(B.box(f"{name}_post{i}", (p.x, p.y, Z_B1 + 0.55), (0.05, 0.05, 1.10), M["steel_brushed"], 0.004), cname)
+    for k_, (z, h, th, mat) in enumerate(((1.075, 0.05, 0.05, "steel_brushed"), (0.06, 0.12, 0.04, "steel_brushed"), (0.58, 0.86, 0.025, "psd_panel"))):
+        ob = B.box(f"{name}_r{k_}", (0, 0, 0), (L, th, h), M[mat], 0.003)
+        ob.location = ((a.x + b.x) / 2, (a.y + b.y) / 2, Z_B1 + z)
+        ob.rotation_euler = (0, 0, ang)
+        put(ob, cname)
+
+
+def gate_office(name, a, b, unpaid_dir, M, cname="B1"):
+    """Station office window on the gate line between a and b: a white booth (2.4 m high) standing
+    on the paid side, its counter window facing the unpaid side."""
+    a, b = Vector((a[0], a[1], 0)), Vector((b[0], b[1], 0))
+    d = b - a
+    L = d.length
+    t = d / L
+    ang = math.atan2(t.y, t.x)
+    u = Vector((unpaid_dir[0], unpaid_dir[1], 0)).normalized()
+    depth = 1.6
+    c = (a + b) / 2 - u * (depth / 2 - 0.1)
+    ob = B.box(f"{name}_body", (0, 0, 0), (L, depth, 2.4), M["panel_white"], 0.01)
+    ob.location = (c.x, c.y, Z_B1 + 1.2)
+    ob.rotation_euler = (0, 0, ang)
+    put(ob, cname)
+    f = (a + b) / 2 + u * 0.1
+    rgt = Vector((-u.y, u.x, 0)) * -1
+    put(B.image_quad(f"{name}_win", (f.x + u.x * 0.002, f.y + u.y * 0.002, Z_B1 + 1.55), tuple(rgt), (0, 0, 1), L - 0.5, 0.9, M["psd_glass"]), cname)
+    sh = (a + b) / 2 + u * 0.22
+    ob = B.box(f"{name}_counter", (0, 0, 0), (L - 0.4, 0.25, 0.04), M["steel_brushed"], 0.004)
+    ob.location = (sh.x, sh.y, Z_B1 + 1.0)
+    ob.rotation_euler = (0, 0, ang)
+    put(ob, cname)
+
+
 def build_gates(M):
-    """Automatic ticket gates as in the 2023 photos: brushed stainless bodies, black top with a blue
-    IC reader, yellow flap doors, green arrow / red cross indicators at both ends; black fascia band
-    with the gate name above the north gate line."""
+    """Automatic ticket gates as in the photos: a bank of cabinets with yellow flaps on each gate
+    line (as many passages as the station has), the station office window next to it, and fixed
+    fences on along the line to the walls (GATE_LINES), so no paid area can be left except through a
+    gate."""
     k = 0
     unpaid_minus = {"北改札": True, "中北東改札": True, "中北西改札": False, "南改札": False, "連絡改札": False}
     for name, pl in PLAN["gates"].items():
-        pts = [Vector((p[0], p[1], 0)) for p in pl]
-        for a, b in zip(pts[:-1], pts[1:]):
-            d = b - a
-            L = d.length
-            t = d.normalized()
-            nrm = Vector((-t.y, t.x, 0))          # along the passage
-            n = max(1, int(L / 0.95))
-            ang = math.atan2(nrm.y, nrm.x)
-            ca, sa = math.cos(ang), math.sin(ang)
-            gsg = 1 if unpaid_minus[name] else -1          # green arrows face the unpaid side
-            for i in range(n + 1):
-                p = a + t * (L * i / n)
-                parts = [
-                    ((0, 0, 0.49), (1.70, 0.27, 0.98), M["gate_side"], 0.06),
-                    ((0, 0, 0.99), (1.62, 0.28, 0.03), M["gate_top"], 0.012),
-                    ((-0.55 * gsg, 0, 1.008), (0.24, 0.18, 0.008), M["gate_blue"], 0.004),
-                    ((0.55 * gsg, 0, 1.008), (0.24, 0.18, 0.008), M["gate_blue"], 0.004),
-                    ((-0.852 * gsg, 0, 0.78), (0.006, 0.12, 0.12), M["gate_green"], 0),
-                    ((0.852 * gsg, 0, 0.78), (0.006, 0.12, 0.12), M["gate_red"] if i % 3 == 0 else M["gate_green"], 0),
-                    ((-0.852 * gsg, 0, 0.60), (0.006, 0.14, 0.16), M["gate_panel"], 0),
-                    ((0.852 * gsg, 0, 0.60), (0.006, 0.14, 0.16), M["gate_panel"], 0),
-                    ((0.05, 0.215, 0.74), (0.36, 0.16, 0.30), M["gate_yellow"], 0.04),
-                    ((0.05, -0.215, 0.74), (0.36, 0.16, 0.30), M["gate_yellow"], 0.04),
-                ]
-                if i in (0, n) and False:
-                    pass
-                for j_, (off, size, mat, bev) in enumerate(parts):
-                    if j_ >= 8 and (i == 0 and j_ == 9 or i == n and j_ == 8):
-                        continue          # no flap on the outer side of the end cabinets
-                    if j_ in (2, 3, 4, 5):
-                        continue          # replaced by textured parts below
-                    ob = B.box(f"gate_{k}_{j_}", (0, 0, 0), size, mat, bev)
-                    ob.location = (p.x + ca * off[0] - sa * off[1], p.y + sa * off[0] + ca * off[1], Z_B1 + off[2])
-                    ob.rotation_euler = (0, 0, ang)
-                    put(ob, "B1")
+        pts = [Vector((p[0], p[1], 0)) for p in GATE_LINES.get(name, pl)]
+        segs = list(zip(pts[:-1], pts[1:]))
+        lens = [(b - a).length for a, b in segs]
+        cum = np.concatenate([[0.0], np.cumsum(lens)])
+        si = int(np.argmax(lens))
+        a, b = segs[si]
+        L = lens[si]
+        t = (b - a) / L
+        nrm = Vector((-t.y, t.x, 0))
+        gsg = 1 if unpaid_minus[name] else -1          # green arrows face the unpaid side
+        unpaid = nrm * (-1 if unpaid_minus[name] else 1)
+        ang = math.atan2(nrm.y, nrm.x)
+        n = min(GATE_BANKS.get(name, 6), max(1, int((L - 4.0) / GATE_PITCH)))
+        bank = n * GATE_PITCH
+        s0 = max(0.3, min(L - bank - 3.6, L / 2 - bank / 2))      # room for the office after it
+        for i in range(n + 1):
+            _gate_cabinet(k, a + t * (s0 + i * GATE_PITCH), ang, gsg, i, n, M)
+            k += 1
+        e0 = s0 - 0.15
+        e1 = s0 + bank + 0.15
+        o1 = min(L, e1 + 3.0)
+        gate_office(f"gate_office_{name}", a + t * e1, a + t * o1, (unpaid.x, unpaid.y), M)
+        # fences along the rest of the line (to its drawn ends; the closures go on to the walls)
+        S0 = cum[si] + e0
+        S1 = cum[si] + o1
 
-                def at(u, v, z):
-                    return (p.x + ca * u - sa * v, p.y + sa * u + ca * v, Z_B1 + z)
-                fwd = (ca, sa, 0)
-                side_v = (-sa, ca, 0)
-                for su in (-1, 1):
-                    u = su * 0.55 * gsg
-                    # IC reader (textured, glowing) and the ticket slot / small display on the top
-                    put(B.image_quad(f"gate_{k}_ic{su}", at(u, 0, 1.0065), fwd if su * gsg < 0 else (-ca, -sa, 0), side_v if su * gsg < 0 else (sa, -ca, 0), 0.15, 0.20, M["ic_reader"]), "B1")
-                    sl = B.box(f"gate_{k}_slot{su}", (0, 0, 0), (0.012, 0.10, 0.004), M["handrail"])
-                    sl.location = at(su * 0.25 * gsg, 0, 1.006)
-                    sl.rotation_euler = (0, 0, ang)
-                    put(sl, "B1")
-                    put(B.image_quad(f"gate_{k}_lcd{su}", at(su * 0.32 * gsg, 0.0, 1.0068), fwd, side_v, 0.06, 0.10, M["dep1"]), "B1")
-                    # end-face indicator: arrow on the entry side, arrow or cross on the exit side
-                    ok = su < 0 or i % 3 != 0
-                    nrmv = (su * gsg * ca, su * gsg * sa, 0)
-                    rgt = (-nrmv[1], nrmv[0], 0)
-                    put(B.image_quad(f"gate_{k}_ind{su}", at(su * 0.856 * gsg, 0, 0.78), rgt, (0, 0, 1), 0.12, 0.12, M["gate_ok" if ok else "gate_ng"]), "B1")
-                    put(B.image_quad(f"gate_{k}_pnl{su}", at(su * 0.856 * gsg, 0, 0.60), rgt, (0, 0, 1), 0.14, 0.16, M["ic_reader"]), "B1")
-                k += 1
-            if name == "北改札":
-                # black fascia band over the gate line with the gate name on the unpaid side
-                sgn = -1 if unpaid_minus[name] else 1
-                mid = (a + b) / 2
-                fas = B.box(f"fascia_{k}", (0, 0, 0), (0.5, L + 0.6, 0.85), M["portal"], 0.01)
-                fas.location = (mid.x, mid.y, Z_B1 + H_B1 - 0.43)      # hangs just below the ceiling
-                fas.rotation_euler = (0, 0, ang)
-                put(fas, "B1")
-                if L > 6:
-                    face = mid + nrm * (sgn * 0.26)
-                    right = t * (1 if sgn < 0 else -1)
-                    for off_, img, w_ in ((-0.25, "gate_fascia_n", 6.4),):
-                        q = B.image_quad(f"fascia_sign_{k}", (face.x, face.y, Z_B1 + H_B1 - 0.43), (right.x, right.y, 0), (0, 0, 1), w_, w_ / 9.0, M[img])
-                        put(q, "B1")
+        def point(sv):
+            j = int(np.clip(np.searchsorted(cum, sv) - 1, 0, len(segs) - 1))
+            return segs[j][0] + (segs[j][1] - segs[j][0]) * ((sv - cum[j]) / lens[j])
+        layout = []
+        for (sa_, sb_) in ((0.0, S0), (S1, cum[-1])):
+            if sb_ - sa_ < 0.05:
+                continue
+            marks = [sa_] + [c for c in cum[1:-1] if sa_ < c < sb_] + [sb_]
+            for q, (u0, u1) in enumerate(zip(marks[:-1], marks[1:])):
+                pa, pb = point(u0), point(u1)
+                gate_fence(f"gfence_{name}_{len(layout)}", pa, pb, M)
+                layout.append(("fence", (pa.x, pa.y), (pb.x, pb.y)))
+        GATE_LAYOUT[name] = layout
+        if name == "北改札":
+            # black fascia band over the gates with the gate name on the unpaid side
+            mid = a + t * (s0 + bank / 2)
+            fas = B.box(f"fascia_{k}", (0, 0, 0), (0.5, bank + 0.8, 0.85), M["portal"], 0.01)
+            fas.location = (mid.x, mid.y, Z_B1 + H_B1 - 0.43)      # hangs just below the ceiling
+            fas.rotation_euler = (0, 0, ang)
+            put(fas, "B1")
+            face = mid + unpaid * 0.26
+            right = t * (1 if unpaid_minus[name] else -1)
+            q = B.image_quad(f"fascia_sign_{k}", (face.x, face.y, Z_B1 + H_B1 - 0.43), (right.x, right.y, 0), (0, 0, 1), 6.4, 6.4 / 9.0, M["gate_fascia_n"])
+            put(q, "B1")
 
 
 def build_exits(M):
@@ -1392,6 +1657,9 @@ CONT_W_Y = (-21.575, 19.144)
 
 def _skip_perimeter(level, x, y):
     if level == "B1":
+        for (x0, y0, x1, y1) in B1_OPENINGS:
+            if x0 - 0.05 <= x <= x1 + 0.05 and y0 - 0.05 <= y <= y1 + 0.05:
+                return True                  # a doorway cut through a wall line (the floor runs on)
         for F, lo, hi in EXIT_CUTS:
             p = F.inverted() @ Vector((x, y, 0.0))
             if -1.5 <= p.x <= hi[0] and lo[1] <= p.y <= hi[1]:
@@ -1544,6 +1812,131 @@ def build_continuation(M):
     bx("cont_tactile", (CONT_W_END + 1.2, yt - 0.15, Z_B1), (xb + 0.5, yt + 0.15, Z_B1 + 0.005), M["tactile_bar"], c)
 
 
+def _scene_caster(objs):
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    trees = []
+    for o in objs:
+        tr = BVHTree.FromObject(o, dg)
+        trees.append((o.name, tr, o.matrix_world.copy(), o.matrix_world.inverted()))
+
+    def cast(p, d, maxd, skip=()):
+        """First hit along p + d t (world), skipping objects named in skip: (distance, name) or (None, None)."""
+        best, who = None, None
+        for o, tr, M_, Mi in trees:
+            if o in skip:
+                continue
+            lo = Mi @ p
+            ld = Mi.to_3x3() @ d
+            sc = ld.length
+            hit = tr.ray_cast(lo, ld / sc, maxd * sc)
+            if hit[0] is not None:
+                dist = (M_ @ hit[0] - p).length
+                if dist <= maxd and (best is None or dist < best):
+                    best, who = dist, o
+        return best, who
+    return cast
+
+
+def _groups(prefixes):
+    """Objects grouped by prefix and their numeric index: 'hyd1_3', 'hyd1_3_sign' -> ('hyd1', '3')."""
+    import re
+    out = {}
+    for ob in bpy.data.objects:
+        for pre in prefixes:
+            m = re.match(rf"^{pre}_(\d+)(_|$)", ob.name)
+            if m:
+                out.setdefault((pre, m.group(1)), []).append(ob)
+                break
+    return out
+
+
+def mount_fixtures(M):
+    """Wall and ceiling fittings placed by rule (ads, hydrant / AED / extinguisher cabinets, smoke
+    detectors, speakers, CCTV domes) are moved onto the actual surface behind / above them, which
+    the rule only guessed (they hung in the air where a wall stood further back or a stair opening
+    left no ceiling); one with no surface close by, or none flat enough across its width, is removed.
+    Runs once the whole station stands (after the perimeter walls)."""
+    fix = ("b1ad_", "b1adf_", "hyd1_", "aed1_", "ext1_", "smk_", "smk1_", "spk_", "spkg_", "cctv_", "cctvb_", "cctv1_", "cctvb1_")
+    structure = [o for o in bpy.context.scene.objects if o.type == "MESH" and o.visible_get() and not o.name.startswith(fix)
+                 and any(c.name in ("B1", "B2", "B1_ceiling", "B2_ceiling", "Stairs", "Vault") for c in o.users_collection)]
+    cast = _scene_caster(structure)
+    moved = removed = 0
+
+    def bbox(objs):
+        pts = [o.matrix_world @ Vector(c) for o in objs for c in o.bound_box]
+        lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+        hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+        return lo, hi
+
+    def drop(objs):
+        for o in objs:
+            bpy.data.objects.remove(o, do_unlink=True)
+
+    # --- on walls: the back of the group goes onto the wall face (along +/-y, as they were placed)
+    wall_groups = _groups(["b1ad_n", "b1adf_n", "b1ad_s", "b1adf_s", "hyd1", "aed1", "ext1"])
+    merged = {}
+    for (pre, idx), objs in wall_groups.items():
+        key = (pre.replace("adf", "ad"), idx)
+        merged.setdefault(key, []).extend(objs)
+    for (pre, idx), objs in merged.items():
+        names = {o.name for o in objs}
+        lo, hi = bbox(objs)
+        if pre.startswith("b1ad"):
+            back = Vector((0, 1, 0)) if pre.endswith("_n") else Vector((0, -1, 0))
+        else:
+            # cabinets: their sign faces away from the wall
+            sign = next((o for o in objs if o.name.endswith("_sign")), None)
+            ny = sign.data.polygons[0].normal.y if sign else 1.0
+            back = Vector((0, -1 if ny > 0 else 1, 0))
+        yb = hi.y if back.y > 0 else lo.y               # back plane of the group now
+        yf = lo.y if back.y > 0 else hi.y
+        dists = []
+        for fx in (0.15, 0.5, 0.85):
+            for z in (lo.z + 0.15, hi.z - 0.1) if hi.z - lo.z > 0.5 else (0.5 * (lo.z + hi.z),):
+                x = lo.x + (hi.x - lo.x) * fx
+                p = Vector((x, yf - back.y * 0.02, max(z, Z_B1 + 0.2) if lo.z > -1 else z))
+                d, who = cast(p, back, 3.5, names)
+                if who is not None and (who.startswith("st") and "_bal" in who):
+                    d = None
+                dists.append(d)
+        ok = all(d is not None for d in dists) and max(dists) - min(dists) < 0.06
+        if not ok:
+            drop(objs)
+            removed += 1
+            continue
+        shift = min(dists) - abs(yb - yf) - 0.02 + 0.003
+        if abs(shift) > 0.002:
+            for o in objs:
+                o.location.y += back.y * shift
+            moved += 1
+    # --- on ceilings: the top of the group goes up to the ceiling right above it
+    ceil_groups = _groups(["smk", "smk1", "spk", "spkg", "cctv", "cctvb", "cctv1", "cctvb1"])
+    merged = {}
+    for (pre, idx), objs in ceil_groups.items():
+        base = pre.rstrip("gb") if pre in ("spkg", "cctvb", "cctvb1") else pre
+        base = {"cctvb1": "cctv1"}.get(pre, base)
+        merged.setdefault((base, idx), []).extend(objs)
+    for (pre, idx), objs in merged.items():
+        names = {o.name for o in objs}
+        lo, hi = bbox(objs)
+        ds = []
+        for dx, dy in ((0, 0), (0.04, 0), (-0.04, 0), (0, 0.04), (0, -0.04)):
+            d, _ = cast(Vector(((lo.x + hi.x) / 2 + dx, (lo.y + hi.y) / 2 + dy, hi.z - 0.01)), Vector((0, 0, 1)), 0.6, names)
+            ds.append(d)
+        if any(d is None for d in ds) or max(ds) - min(ds) > 0.03:
+            drop(objs)
+            removed += 1
+            continue
+        up = min(ds) - 0.01
+        if abs(up) > 0.002:
+            for o in objs:
+                o.location.z += up
+            moved += 1
+    bpy.context.view_layer.update()
+    print("fixtures mounted", moved, "moved", removed, "removed")
+
+
 def build_fill_lights(M):
     """Light every floor the walker can reach. On the 3 m downlight grid, wherever there is floor
     at a level with a ceiling over it and no light within 3.2 m (side corridors, platform ends,
@@ -1672,8 +2065,11 @@ def build_details(M):
         put(B.sphere(f"cctv1_{k}", (x, y, H_B1 - 0.07), 0.075, M["cctv"], scale=(1, 1, 0.9)), "B1")
         put(B.cylinder(f"cctvb1_{k}", (x, y, H_B1 - 0.02), 0.09, 0.04, M["panel_white"], segs=24), "B1")
         k += 1
-    # green emergency-exit signs over each stair foot (B2) and top (B1)
+    # green emergency-exit signs over each stair foot (B2) and top (B1); the stair + escalator
+    # openings (I, J) carry theirs on the portal frame
     for kk, st in PLAN["stairs"].items():
+        if kk in ("I", "J"):
+            continue
         sg = 1 if st["x_bot"] > st["x_top"] else -1
         yc = (st["y0"] + st["y1"]) / 2
         for xx, zz, face in ((st["x_bot"] + sg * 0.9, Z_B2_CEIL if not (vx0 < st["x_bot"] < vx1 and yc < 1.5) else Z_B2 + 3.4, -sg),):
@@ -1842,6 +2238,7 @@ def main():
     UP.build(sys.modules[__name__], M)
     build_exits(M)
     build_perimeter(M)
+    mount_fixtures(M)
     if args.view not in ("top", "overview"):
         build_b1_lights(M)
         build_fill_lights(M)

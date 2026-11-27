@@ -3,6 +3,9 @@ only the faces of each chunk whose existing bake is wrong:
   sliver:<chunk>      faces whose charts lay under a sliver face's UV triangle (sliver overwrote them)
   moved:<chunk>       faces whose UVs in the layout the chunk was baked with (GitHub prep) differ
                       from the app's layout (their texels hold some other place's light)
+  metal:<chunk>       faces of fully metallic materials (stainless): a metal has no diffuse part,
+                      so their diffuse bake was black; baked again as dielectrics (export_station's
+                      bake does so now) they get the light arriving at them
   python3 patch_bake.py OUT spec [spec ...]
 Writes OUT/<chunk>.npz (patched charts only), OUT/<chunk>_sliver_mask.npy (texels to replace:
 old and new places of those charts), OUT/<chunk>_targets.npy. The other faces keep their geometry
@@ -59,7 +62,17 @@ def patch_targets(mode, name):
     for t in me.loop_triangles:
         tris_of[t.polygon_index].append(tuple(t.loops))
     slivers = set(poly[np.abs(orig - cur).max(1) > 1e-6].tolist())
-    if mode == "sliver":
+    if mode == "metal":
+        def full_metal(m):
+            b = m.node_tree.nodes.get("Principled BSDF") if (m and m.node_tree) else None
+            return b is not None and b.inputs["Metallic"].default_value >= 0.999
+        mats = [full_metal(sl.material) for sl in ob.material_slots]
+        mi = np.empty(n, np.int32)
+        me.polygons.foreach_get("material_index", mi)
+        slivers = set()
+        moved = set(p for p in range(n) if mi[p] < len(mats) and mats[mi[p]])
+        bad = np.zeros((s, s), bool)
+    elif mode == "sliver":
         moved = set()
         bad = raster(s, [t for p in slivers for t in tris_of[p]], orig)
     else:

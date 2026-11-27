@@ -30,6 +30,28 @@ def save_lightmap(e, path):
 
 LO = 8
 
+IMPORT = """[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+
+[params]
+
+compress/mode=2
+compress/high_quality=true
+mipmaps/generate=true
+"""
+
+
+def write_import(png):
+    """Godot import settings for a lightmap: VRAM compressed in high quality (ASTC 4x4 on phones,
+    BPTC on desktops). The default (ETC2 on phones) shifted the colour of whole 4x4 blocks of a
+    near-white lightmap, which showed as pink and green blotches on the floors."""
+    p = png + ".import"
+    if os.path.exists(p) and "compress/high_quality=true" in open(p).read():
+        return
+    open(p, "w").write(IMPORT)
+
 
 def save_lowres(e, path):
     """A 1/8 size stand-in the app shows while the full lightmap of a chunk is not loaded: mean of
@@ -73,9 +95,11 @@ def main():
         if not a.no_denoise:
             e = denoise(e)
         info["p99"] = save_lightmap(e, dst)
+        write_import(dst)
         lo_dst = os.path.join(a.out, "lightmaps_lo", os.path.basename(info["file"]))
         os.makedirs(os.path.dirname(lo_dst), exist_ok=True)
         save_lowres(e, lo_dst)
+        write_import(lo_dst)
         info["lo"] = os.path.relpath(lo_dst, a.out)
         print(name, e.shape[1], "px", "denoised" if not a.no_denoise else "raw", flush=True)
         json.dump(meta, open(meta_p, "w"), ensure_ascii=False, indent=1)

@@ -79,6 +79,7 @@ def build(gpu):
     BU.UP.build(BU, M)
     BU.build_exits(M)
     BU.build_perimeter(M)
+    BU.mount_fixtures(M)
     BU.build_b1_lights(M)
     BU.build_fill_lights(M)
     log("scene built", len(bpy.data.objects), "objects")
@@ -1354,6 +1355,12 @@ def bake_batch(chunks, sizes, raw_dir):
                 log(f"{ob.name}: empty material slot {i} baked as plain grey")
             mc = m.copy()
             nt = mc.node_tree
+            pb = nt.nodes.get("Principled BSDF")
+            if pb is not None and pb.inputs["Metallic"].default_value > 0.0:
+                # a metal has no diffuse part, so its diffuse bake was black (stainless rails and
+                # gates came out black in the app): baked as a dielectric it gets the irradiance,
+                # which the app shows as the rough metal's reflection of its lit surroundings
+                pb.inputs["Metallic"].default_value = 0.0
             node = nt.nodes.new("ShaderNodeTexImage")
             node.name = "BAKE_TARGET"
             node.image = img
@@ -1511,6 +1518,9 @@ def describe_materials(used, out_dir, max_tex):
                 d["normal_space"] = nm.space
         d["metallic"] = float(b.inputs["Metallic"].default_value)
         d["coat"] = float(b.inputs["Coat Weight"].default_value)
+        alpha = float(b.inputs["Alpha"].default_value)
+        if alpha < 0.999:
+            d["alpha"] = alpha          # see-through (glass): drawn blended, no lightmap
         es = float(b.inputs["Emission Strength"].default_value)
         if es > 0:
             ec = b.inputs["Emission Color"]
