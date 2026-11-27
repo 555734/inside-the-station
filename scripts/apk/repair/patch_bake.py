@@ -117,6 +117,8 @@ def patch_targets(mode, name):
 
 sys.argv = ["export_station.py", OUT + "/station", "--samples", "128", "--texel", "0.03", "--max-lm", "2048",
             "--max-tex", "1024", "--uv-from", UVD, "--raw-dir", OUT, "--no-bake"]
+if os.environ.get("PATCH_REORIENT"):
+    sys.argv += ["--reorient", os.environ["PATCH_REORIENT"]]
 E.main()
 obs = []
 for mode, name in SPECS:

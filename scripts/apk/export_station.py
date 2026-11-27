@@ -1630,6 +1630,8 @@ def main():
     ap.add_argument("--bake-changed", action="store_true",
                     help="with --uv-from: bake only the chunks laid out anew here (geometry changed since)")
     ap.add_argument("--check-void", action="store_true", help="report how much empty space the walker can still see")
+    ap.add_argument("--reorient", default="", help="with --uv-from: levels (e.g. B1,B2,ST) whose geometry changed: "
+                    "decide their faces' orientation again instead of taking the stored decisions")
     a = ap.parse_args()
     out = os.path.abspath(a.out)
     raw_dir = os.path.abspath(a.raw_dir or os.path.join(out, "lm_raw"))
@@ -1664,6 +1666,15 @@ def main():
     # continued bake rebuilds exactly the same geometry)
     wg = None if old else walk_grid(col)
     orient = old["orient"] if old else orient_faces(list(levels.values()), wg)
+    if old and a.reorient:
+        # these levels' geometry changed since that layout: their faces are decided again (the
+        # stored decisions are by face index); the others keep theirs, so their layouts still fit
+        wg = walk_grid(col)
+        fresh = orient_faces(list(levels.values()), wg)
+        orient = dict(orient)
+        for lv in a.reorient.split(","):
+            orient[f"L_{lv}"] = fresh.get(f"L_{lv}", {})
+        log("orientation decided again for", a.reorient)
     for name, ob in levels.items():
         apply_orientation(ob, orient.get(ob.name, {}))
     # close the places where the model just stops (ceiling holes, open corridor ends, exits)

@@ -67,7 +67,8 @@ jobs:
       - name: layout (textures are generated on the way)
         run: |
           if [ -d /tmp/base_layout/uv ]; then
-            python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only --uv-from /tmp/base_layout/uv > /tmp/layout.log 2>&1 || { tail -40 /tmp/layout.log; exit 1; }
+            RE=$(python -c "import json; print(json.load(open('.github/bake/request.json')).get('reorient', ''))")
+            python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only --uv-from /tmp/base_layout/uv ${RE:+--reorient $RE} > /tmp/layout.log 2>&1 || { tail -40 /tmp/layout.log; exit 1; }
             grep -E "laid out anew| layout [0-9a-f]{12}" /tmp/layout.log | cut -c1-400
           else
             python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only
