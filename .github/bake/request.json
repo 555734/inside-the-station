@@ -1,1 +1,1 @@
-{"samples": 128, "prep_run": 45833278178, "layout": "c48c4816e8c1", "parts": [["B2_13_0aa"], ["UP_12_2"], ["B1_15_2b"], ["B2_07_0bb"], ["ST_09_0b"], ["UP_06_3b"], ["ST_06_0a"], ["UP_14_2"], ["B2_09_0ba"], ["B2_13_0ba"], ["UP_02_1"], ["UP_11_0b"]], "note": "re-bake of parts [35, 38] stopped by the 6 h limit, one chunk per runner"}
+{"samples": 128, "base_prep_run": 45833278178, "bake_changed": true, "auto_parts": 40, "note": "exit stairwell walls faced into the wall: re-lay out and re-bake only the chunks that changed"}

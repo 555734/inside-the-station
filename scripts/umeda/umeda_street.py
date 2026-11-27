@@ -247,7 +247,10 @@ def exit_stair(BU, B, M, k, e):
     for yy, nm in ((y0 - 0.15, "a"), (y1, "b")):
         top = [(x, min(cz, Z_ST)) for x, cz in zip(xs, ceil)] + [(hood_x1, Z_ST)]
         bot = [(hood_x1, BU.Z_B1), (float(xs[0]), BU.Z_B1)]
-        BU.incline_prism(f"ex{k}_wall{nm}", top + bot, yy, yy + 0.15, M["wall_tile"], cname)
+        # incline_prism faces a polygon outwards when it runs counter-clockwise in x-z (as the
+        # ceiling's does); top-then-bottom runs clockwise, so reversed (the walls came out inside
+        # out: the stairwell saw their back faces, baked black)
+        BU.incline_prism(f"ex{k}_wall{nm}", (top + bot)[::-1], yy, yy + 0.15, M["wall_tile"], cname)
     BU.bx(f"ex{k}_under_end", (hood_x1, y0 - 0.15, BU.Z_B1), (hood_x1 + 0.15, y1 + 0.15, Z_ST - 0.35), M["wall_tile"], cname)
     fills = _side_fills(BU, foot, u, y0 - 0.15, y1 + 0.15, float(xs[0]), hood_x1 + 0.15)
     for (ya_, yb_), nm in zip(fills, ("a", "b")):

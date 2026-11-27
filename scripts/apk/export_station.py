@@ -1781,6 +1781,8 @@ def main():
     if a.no_bake:
         return
     col.hide_render = True                     # the walk ramps must not shade anything
+    if os.environ.get("SAVE_BAKE_SCENE"):        # debugging: the scene exactly as it is baked
+        bpy.ops.wm.save_as_mainfile(filepath=os.environ["SAVE_BAKE_SCENE"])
     globals()["BATCH_PX"] = int(a.batch_px)
     skip = set(x for x in a.skip.split(",") if x)
     if a.bake_changed:

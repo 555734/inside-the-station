@@ -22,6 +22,7 @@ jobs:
     outputs:
       parts: ${{ steps.p.outputs.parts }}
       prep_run: ${{ steps.p.outputs.prep_run }}
+      base_prep_run: ${{ steps.p.outputs.base_prep_run }}
     steps:
       - uses: actions/checkout@v4
       - id: p
@@ -32,6 +33,7 @@ jobs:
           n = r["auto_parts"] if "auto_parts" in r else len(r["parts"])
           print("parts=" + json.dumps(list(range(1, n + 1))))
           print("prep_run=" + str(r.get("prep_run", "")))
+          print("base_prep_run=" + str(r.get("base_prep_run", "")))
           PY
 
   prep:
@@ -47,13 +49,29 @@ jobs:
         run: (sudo apt-get -qq update || true) && sudo apt-get -qq install -y poppler-utils libxi6 libxkbcommon0 libxxf86vm1 libsm6 libgl1 libxrender1 libxfixes3 > /dev/null
       - name: python packages
         run: pip install -q bpy==5.3.0 numpy scipy pillow opencv-python-headless
+      # with base_prep_run: that run's layout (and textures, fonts) is the start; only the chunks
+      # whose geometry changed since are laid out again, here once for every bake and the app
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.base_prep_run != ''
+        with:
+          name: prep
+          path: /tmp/base
+          run-id: ${{ needs.plan.outputs.base_prep_run }}
+          github-token: ${{ github.token }}
       - name: map plan and fonts
         run: |
+          if [ -f /tmp/base/prep.tar ]; then tar -xf /tmp/base/prep.tar && mv layout /tmp/base_layout; fi
           bash scripts/umeda/fetch_map.sh
           python scripts/umeda/plan.py
           bash scripts/fetch_fonts.sh > /dev/null
       - name: layout (textures are generated on the way)
-        run: python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only
+        run: |
+          if [ -d /tmp/base_layout/uv ]; then
+            python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only --uv-from /tmp/base_layout/uv > /tmp/layout.log 2>&1 || { tail -40 /tmp/layout.log; exit 1; }
+            grep -E "laid out anew| layout [0-9a-f]{12}" /tmp/layout.log | cut -c1-400
+          else
+            python scripts/apk/export_station.py /tmp/layout $EXPORT_ARGS --layout-only
+          fi
       - name: same layout as the other bakes
         run: |
           python - <<'PY'
@@ -128,7 +146,11 @@ jobs:
           r = json.load(open(".github/bake/request.json"))
           sizes = json.load(open("/tmp/layout/uv/index.json"))["sizes"]
           part = int(sys.argv[1])
-          if "auto_parts" in r:
+          if r.get("bake_changed"):
+              # one chunk laid out anew in the prep per runner (none left: nothing to do)
+              ch = sorted(json.load(open("/tmp/layout/uv/index.json")).get("changed", []))
+              mine = ch[part - 1:part]
+          elif "auto_parts" in r:
               # largest first into the lightest bin: every runner gets about the same pixels
               n = r["auto_parts"]
               bins = [[0, []] for _ in range(n)]
@@ -142,6 +164,7 @@ jobs:
           print(",".join(mine))
           PY
           echo "chunks: $(cat /tmp/mine.txt)"
+          if [ -z "$(tr -d '[:space:]' < /tmp/mine.txt)" ]; then echo "no chunk for this runner"; exit 0; fi
           SKIP=$(python -c "import json,sys; i=json.load(open('/tmp/layout/uv/index.json')); mine=set(open('/tmp/mine.txt').read().strip().split(',')); print(','.join(sorted(set(i['sizes'])-mine)))")
           WANT=$(python -c "import json; r=json.load(open('.github/bake/request.json')); print(r.get('expect_layout') or r.get('layout') or json.load(open('/tmp/layout/uv/index.json'))['layout_id'])")
           # the scene build has died now and then on a runner before the layout (4 of 20 runners
