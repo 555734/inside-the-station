@@ -24,7 +24,8 @@ SPECS = [a.split(":") for a in sys.argv[2:]]
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../.."))
 PREP = ROOT + "/cache/kaggle/gh_prep/layout/uv"
 os.makedirs(OUT, exist_ok=True)
-idx = json.load(open(ROOT + "/cache/kaggle/apk_uv/index.json"))
+UVD = os.environ.get("PATCH_UV", ROOT + "/cache/kaggle/apk_uv")     # the layout the lightmaps were baked with
+idx = json.load(open(UVD + "/index.json"))
 
 
 def by_key(path, keys):
@@ -49,7 +50,7 @@ def patch_targets(mode, name):
     me = ob.data
     s = idx["sizes"][name]
     keys = E.loop_keys(me)
-    orig = by_key(ROOT + f"/cache/kaggle/apk_uv/{name}.npz", keys)    # app layout before collapse
+    orig = by_key(f"{UVD}/{name}.npz", keys)    # app layout before collapse
     cur = np.empty(len(me.loops) * 2, np.float32)
     me.uv_layers["Lightmap"].data.foreach_get("uv", cur)
     cur = cur.reshape(-1, 2).astype(np.float64)
@@ -115,7 +116,7 @@ def patch_targets(mode, name):
 
 
 sys.argv = ["export_station.py", OUT + "/station", "--samples", "128", "--texel", "0.03", "--max-lm", "2048",
-            "--max-tex", "1024", "--uv-from", ROOT + "/cache/kaggle/apk_uv", "--raw-dir", OUT, "--no-bake"]
+            "--max-tex", "1024", "--uv-from", UVD, "--raw-dir", OUT, "--no-bake"]
 E.main()
 obs = []
 for mode, name in SPECS:
