@@ -53,6 +53,40 @@ def write_import(png):
     open(p, "w").write(IMPORT)
 
 
+# Godot import settings of the models. Nothing in the app casts a real-time shadow (the light is all
+# baked), so the shadow meshes Godot makes by default are never drawn; the collision model only gives
+# its triangles to the physics (no levels of detail, tangents or shadow meshes needed). Leaving them
+# out keeps the APK under 400 MB with the same picture.
+SCENE_PARAMS = {
+    "station.glb": {"meshes/create_shadow_meshes": "false"},
+    "far.glb": {"meshes/create_shadow_meshes": "false"},
+    "collision.glb": {"meshes/create_shadow_meshes": "false", "meshes/generate_lods": "false",
+                      "meshes/ensure_tangents": "false"},
+}
+
+
+def write_scene_imports(out):
+    """Import settings of the station's models (see SCENE_PARAMS); a model whose settings change is
+    imported again by the next `godot --import`."""
+    import glob
+    import re
+    for f, params in SCENE_PARAMS.items():
+        if not os.path.exists(os.path.join(out, f)):
+            continue
+        p = os.path.join(out, f + ".import")
+        old = open(p).read() if os.path.exists(p) else ""
+        txt = old or '[remap]\n\nimporter="scene"\nimporter_version=1\n\n[params]\n\n'
+        for k, v in params.items():
+            if re.search(rf"^{re.escape(k)}=", txt, re.M):
+                txt = re.sub(rf"^{re.escape(k)}=.*$", f"{k}={v}", txt, flags=re.M)
+            else:
+                txt = txt.replace("[params]\n", f"[params]\n{k}={v}\n", 1)
+        if txt != old:
+            open(p, "w").write(txt)
+            for m in glob.glob(os.path.join(os.path.dirname(os.path.abspath(out)), ".godot", "imported", f + "-*.md5")):
+                os.remove(m)
+
+
 def save_lowres(e, path):
     """A 1/8 size stand-in the app shows while the full lightmap of a chunk is not loaded: mean of
     the covered texels in each 8 x 8 block (empty gutter texels left out), empty blocks filled
@@ -81,6 +115,7 @@ def main():
     a = ap.parse_args()
     meta_p = os.path.join(a.out, "app.json")
     meta = json.load(open(meta_p))
+    write_scene_imports(a.out)
     os.makedirs(os.path.join(a.out, "lightmaps"), exist_ok=True)
     missing = []
     for name, info in sorted(meta["lightmaps"].items()):

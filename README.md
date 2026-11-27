@@ -163,7 +163,9 @@ python3 scripts/kaggle/kaggle_render.py run __export__ --samples 128 --texel 0.0
 # 3. 焼いたライトマップのノイズを Open Image Denoise で除き、アプリ用の PNG にする（ローカル、GPU 不要）
 python3 scripts/apk/finish_station.py app/station cache/kaggle/lm_raw
 # 4. APK を作る（Godot 4.4 と Android の export templates、Android SDK、JDK が必要）
-cd app && godot --headless --import && godot --headless --export-debug "Android" ../build/umeda_walkthrough.apk
+#    リリース用テンプレート（デバッグ機能のない軽いエンジン）で書き出す。署名する鍵は環境変数で渡す
+export GODOT_ANDROID_KEYSTORE_RELEASE_PATH=/path/to/keystore GODOT_ANDROID_KEYSTORE_RELEASE_USER=alias GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=...
+cd app && godot --headless --import && godot --headless --export-release "Android" ../build/umeda_walkthrough.apk
 ```
 
 焼き込みのサンプル数は、ノイズ除去と組み合わせて比較して決めました。2番線アーチ下のホーム（5 m 四方、同じ解像度）で、
