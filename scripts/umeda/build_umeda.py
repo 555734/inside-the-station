@@ -1557,11 +1557,13 @@ def build_fill_lights(M):
     from mathutils.bvhtree import BVHTree
     dg = bpy.context.evaluated_depsgraph_get()
     verts, tris, off = [], [], 0
+    rev = []                      # triangle ranges whose faces count reversed (see open_space)
     for ob in sorted(bpy.data.objects, key=lambda o: o.name):
         if ob.type != "MESH" or not ob.data.polygons:
             continue
         if any(c.name.endswith("_lights") for c in ob.users_collection):
             continue
+        t0 = sum(len(t) for t in tris)
         eo = ob.evaluated_get(dg)
         me = eo.to_mesh()
         me.calc_loop_triangles()
@@ -1576,15 +1578,23 @@ def build_fill_lights(M):
         tris.append(t.reshape(-1, 3) + off)
         off += n
         eo.to_mesh_clear()
+        if ob.name.startswith("ex") and "_wall" in ob.name:
+            rev.append((t0, t0 + len(tris[-1])))
     tree = BVHTree.FromPolygons(np.vstack(verts).tolist(), np.vstack(tris).tolist())
     before = [ob.matrix_world.translation.copy() for ob in bpy.data.objects if ob.type == "LIGHT"]
+
+    def reversed_face(i):
+        # the exit stairwell walls were built inside out when the station's lightmaps were baked;
+        # the fill lights (and with them the concourse chunks' geometry and light) are decided as
+        # they were then, so only the stairwell chunks themselves need baking again
+        return any(a <= i < b for a, b in rev)
     horiz = [Vector((1, 0, 0)), Vector((-1, 0, 0)), Vector((0, 1, 0)), Vector((0, -1, 0)),
              Vector((0.7071, 0.7071, 0)), Vector((-0.7071, 0.7071, 0)), Vector((0.7071, -0.7071, 0)), Vector((-0.7071, -0.7071, 0))]
 
     def open_space(p):
         for d in horiz:
             h = tree.ray_cast(p, d, 6.0)
-            if h[0] is not None and h[1].dot(d) > 0.0:
+            if h[0] is not None and (h[1].dot(d) > 0.0) != reversed_face(h[2]):
                 return False                  # the first surface is seen from behind: inside a solid
         return True
 
@@ -1593,10 +1603,10 @@ def build_fill_lights(M):
         if not open_space(p):
             return None
         f = tree.ray_cast(p, Vector((0, 0, -1)), 1.5)
-        if f[0] is None or f[1].z < 0.7 or abs(f[0].z - z0) > 0.25:
+        if f[0] is None or f[1].z * (-1 if reversed_face(f[2]) else 1) < 0.7 or abs(f[0].z - z0) > 0.25:
             return None
         c = tree.ray_cast(p, Vector((0, 0, 1)), 8.0)
-        if c[0] is None or c[1].z > -0.5 or not 2.1 < c[0].z - f[0].z < 7.0:
+        if c[0] is None or c[1].z * (-1 if reversed_face(c[2]) else 1) > -0.5 or not 2.1 < c[0].z - f[0].z < 7.0:
             return None
         zc = round(c[0].z, 3)
         if any((L.x - x) ** 2 + (L.y - y) ** 2 < 3.2 ** 2 and abs(L.z - zc) < 2.0 for L in lights):

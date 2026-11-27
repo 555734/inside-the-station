@@ -1,1 +1,1 @@
-{"samples": 128, "base_prep_run": 45833278178, "bake_changed": true, "auto_parts": 40, "note": "exit stairwell walls faced into the wall: re-lay out and re-bake only the chunks that changed"}
+{"samples": 128, "base_prep_run": 45833278178, "bake_changed": true, "auto_parts": 32, "note": "exit stairwell walls faced into the wall: re-bake only the 31 chunks that changed (fill lights decided as before)"}
