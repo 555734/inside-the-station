@@ -148,8 +148,8 @@ def spawns(layout):
         out.append({"name": label, "pos": g(p), "fwd": g((math.cos(h), math.sin(h), 0.0))})
     st = [i for i in ins if i["module"] == "STATION"]
     if st:
-        at(st[0], (-1.0, 9.0), 0.0, -90, "あかり町駅 改札前")
-        at(st[0], (24.0, -10.0), K.Z2, 180, "あかり町駅 ホーム")
+        at(st[0], (-1.5, 9.0), 0.0, -90, "あかり町駅 改札前")      # in line with a gate passage
+        at(st[0], (26.0, -7.5), K.Z2, 180, "あかり町駅 ホーム")      # beside the columns down the middle
     pz = [i for i in ins if i["module"] == "PLAZA"]
     if pz:
         at(pz[0], (-8.0, -11.0), 0.0, 60, "ひかり広場")
@@ -157,7 +157,7 @@ def spawns(layout):
     if sh:
         at(sh[len(sh) // 2], (0.0, -7.0), 0.0, 90, "地下街 商店通り")
     if len(st) > 1:
-        at(st[1], (-1.0, 9.0), 0.0, -90, "もう一つの駅 改札前")
+        at(st[1], (-1.5, 9.0), 0.0, -90, "もう一つの駅 改札前")
     return out
 
 
@@ -184,6 +184,10 @@ def main():
     used_mods = sorted({i["module"] for i in layout["instances"]} | {"I"})
     K.build_all(only=set(used_mods))
     log("kit built:", used_mods)
+    # parts placed by location / rotation (gate cabinets, the office booth, rails...) get their
+    # world matrix only when the view layer is evaluated: before the module collections are
+    # excluded from it, or they would be exported where they were made (at the origin)
+    bpy.context.view_layer.update()
     split_lights()
     exclude_sources()
     chunks, sizes, cols, mod_chunks = [], {}, [], {}

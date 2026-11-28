@@ -274,7 +274,12 @@ func _maybe_screenshot() -> void:
 			await get_tree().physics_frame
 			t += get_physics_process_delta_time()
 			if int(t * 60) % 60 == 0:
-				print("walk t=%.1f pos=%s floor=%s" % [t, player.global_position, player.is_on_floor()])
+				var hit := ""
+				for i in player.get_slide_collision_count():
+					var c := player.get_slide_collision(i)
+					if absf(c.get_normal().y) < 0.7:
+						hit = " hit %s n %s" % [c.get_position(), c.get_normal()]
+				print("walk t=%.1f pos=%s floor=%s%s" % [t, player.global_position, player.is_on_floor(), hit])
 		get_tree().quit()
 		return
 	if OS.get_cmdline_user_args().has("--stats"):
