@@ -30,12 +30,13 @@ CAT = {
     "X": (ONE, [(0.0, HC, "N"), (0.0, -HC, "S"), (HC, 0.0, "E"), (-HC, 0.0, "W")]),
     "EXIT": (ONE, [(0.0, -HC, "S")]),
     "PLAZA": (TWO, [(-8.0, C, "N"), (C, 8.0, "E"), (8.0, -C, "S"), (-C, -8.0, "W")]),
-    "STATION": (TWO, [(-8.0, C, "N"), (8.0, C, "N"), (-C, 8.0, "W"), (C, 8.0, "E")]),
+    "STATION": ([(-C, -HC), (0.0, -HC), (C, -HC), (-C, HC), (0.0, HC), (C, HC)],
+                [(-C, C, "N"), (0.0, C, "N"), (C, C, "N"), (-1.5 * C, HC, "W"), (1.5 * C, HC, "E")]),
 }
 WEIGHT = {"I": 3.0, "I2": 1.0, "SHOP_A": 1.3, "SHOP_B": 1.3, "SHOP_C": 1.3, "L": 1.3, "T": 1.1, "X": 0.5,
           "PLAZA": 0.35, "STATION": 0.4, "EXIT": 0.12}
 LIMIT = {"PLAZA": 3, "STATION": 2}
-PLATFORM_HALF = (64.0, 22.0)     # the platform level under a station (x, y half extents, track tunnels incl.)
+PLATFORM_HALF = (96.0, 24.0)     # the platform level under a station (x, y half extents, track tunnels incl.)
 
 
 def rot(p, r):
@@ -190,10 +191,10 @@ class Maze:
                 raise RuntimeError(f"cannot close port at {key}")
 
 
-def build(seed, cells, bounds=(-9, -7, 9, 7)):
+def build(seed, cells, bounds=(-10, -8, 10, 8)):
     for attempt in range(50):
         mz = Maze(seed + attempt * 1000, bounds)
-        mz.place("STATION", (HC, HC), 0)
+        mz.place("STATION", (0.0, HC), 0)
         mz.grow(cells)
         if mz.count.get("STATION", 0) >= 2 and mz.count.get("PLAZA", 0) >= 1:
             mz.close()

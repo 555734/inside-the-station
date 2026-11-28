@@ -62,21 +62,21 @@ def shop(sid, tag):
     # and would shade it black in the bake if both were on the same plane (the pilasters hide the gap)
     for a, b, n in (((0.05, -0.3), (0.05, -D), (1, 0)), ((W - 0.05, -D), (W - 0.05, -0.3), (-1, 0)), ((0.05, -D), (W - 0.05, -D), (0, 1))):
         put(BU.vrect(f"{K.CUR}_{p}w{a[0]:.0f}{b[1]:.0f}", a, b, 0.0, zc, wall_mat, K.CUR, (n[0], n[1], 0)))
-    # front: glazing with mullions and an open entrance 2 m wide in the middle (doors slid open)
+    # front: glazed all across, the automatic doors in the middle shut (the shops are seen from the
+    # street through the glass, not entered)
     ex0, ex1 = W / 2 - 1.0, W / 2 + 1.0
-    open_front = kind in ("flowers", "bakery", "soba")
-    if not open_front:
-        for (x0, x1) in ((pil, ex0), (ex1, W - pil)):
-            bx(f"{p}gl{x0:.0f}", (x0, -0.17, 0.10), (x1, -0.15, 2.40), m["shop_glass"])
-            bx(f"{p}kick{x0:.0f}", (x0, -0.2, 0.0), (x1, -0.12, 0.10), m["steel_brushed"])
-            for xm in np.arange(x0, x1 + 0.01, (x1 - x0) / max(1, round((x1 - x0) / 1.4))):
-                bx(f"{p}mul{xm:.1f}", (xm - 0.025, -0.2, 0.0), (xm + 0.025, -0.12, 2.45), m["steel_brushed"], deco=True)
-        bx(f"{p}tr", (pil, -0.2, 2.40), (W - pil, -0.12, 2.45), m["steel_brushed"], deco=True)
-        # door leaves parked behind the glass beside the opening
-        for s, xx in ((-1, ex0 - 0.5), (1, ex1 + 0.5)):
-            bx(f"{p}leaf{s}", (xx - 0.5, -0.26, 0.02), (xx + 0.5, -0.24, 2.36), m["shop_glass"], deco=True)
-    else:
-        bx(f"{p}tr", (pil, -0.2, 2.40), (W - pil, -0.12, 2.45), m["steel_brushed"], deco=True)
+    for (x0, x1) in ((pil, ex0), (ex1, W - pil)):
+        bx(f"{p}gl{x0:.0f}", (x0, -0.17, 0.10), (x1, -0.15, 2.40), m["shop_glass"])
+        bx(f"{p}kick{x0:.0f}", (x0, -0.2, 0.0), (x1, -0.12, 0.10), m["steel_brushed"])
+        for xm in np.arange(x0, x1 + 0.01, (x1 - x0) / max(1, round((x1 - x0) / 1.4))):
+            bx(f"{p}mul{xm:.1f}", (xm - 0.025, -0.2, 0.0), (xm + 0.025, -0.12, 2.45), m["steel_brushed"], deco=True)
+    bx(f"{p}tr", (pil, -0.2, 2.40), (W - pil, -0.12, 2.45), m["steel_brushed"], deco=True)
+    for s_, (xa, xb) in enumerate(((ex0, W / 2 - 0.01), (W / 2 + 0.01, ex1))):
+        bx(f"{p}door{s_}", (xa, -0.21, 0.02), (xb, -0.19, 2.38), m["shop_glass"])
+        bx(f"{p}dfr{s_}", (xa, -0.215, 0.0), (xb, -0.185, 0.06), m["steel_brushed"], deco=True)
+        hx = W / 2 - 0.12 if s_ == 0 else W / 2 + 0.1
+        bx(f"{p}dh{s_}", (hx, -0.18, 0.9), (hx + 0.02, -0.16, 1.4), m["steel"], deco=True)
+    bx(f"{p}sensor", (W / 2 - 0.15, -0.2, 2.3), (W / 2 + 0.15, -0.12, 2.38), m["panel_grey"], deco=True)
     # lights: shops are brighter than the street (a convenience store far brighter): rows of line
     # lights in the stores that sell from shelves, warm downlights in the eateries and the florist
     warm = kind in ("cafe", "bakery", "ramen", "soba", "flowers")
@@ -180,7 +180,7 @@ def fit_cafe(p, sid):
     bx(f"{p}esp", (5.5, -D + 0.45, 1.0), (6.3, -D + 0.85, 1.45), m["steel"], deco=True)
     bx(f"{p}grd", (4.6, -D + 0.5, 1.0), (4.9, -D + 0.8, 1.35), m["panel_grey"], deco=True)
     quad(f"{p}menu", (4.0, -D + 0.01, 2.2), (-1, 0, 0), (0, 0, 1), 2.4, 0.6, m["menu_cafe"])
-    tables = ((1.3, -2.4), (3.3, -2.6), (6.4, -2.4), (1.3, -1.2), (6.6, -1.2))
+    tables = ((1.4, -2.9), (3.4, -2.6), (6.4, -2.8), (2.2, -1.6), (5.6, -1.6))
     for i, (x, y) in enumerate(tables):
         table(p, x, y)
     KG.cafe_items(p, tables, -D + 0.65, rng)
@@ -334,15 +334,16 @@ PZ = 13.0       # half size of the plaza hall
 PZ_H = 4.2
 
 
-def stub_rects(ports):
-    """Corridor stubs from the hall edge (+-PZ) to the 2x2 module edge (+-C) at the given ports."""
+def stub_rects(ports, half=(PZ, PZ)):
+    """Corridor stubs from the hall edge (+-half) to the module edge at the given ports."""
+    hx, hy = half
     out = []
     for (x, y, side) in ports:
         if side in ("N", "S"):
-            y0, y1 = sorted((math.copysign(PZ, y), y))
+            y0, y1 = sorted((math.copysign(hy, y), y))
             out.append((x - HW, y0, x + HW, y1))
         else:
-            x0, x1 = sorted((math.copysign(PZ, x), x))
+            x0, x1 = sorted((math.copysign(hx, x), x))
             out.append((x0, y - HW, x1, y + HW))
     return out
 
@@ -353,38 +354,42 @@ def port_box(x, y, side):
     return (x - 0.05, y - HW + E_, x + 0.05, y + HW - E_)
 
 
-def hall(ports, h=PZ_H, floor="dg_floor", hole=None):
-    """Hall of +-PZ with corridor stubs to the ports; the hall ceiling is higher than the stubs'
-    (a bulkhead closes the step). hole: a box cut out of the floor (stairwell)."""
+def hall(ports, h=PZ_H, floor="dg_floor", holes=(), half=(PZ, PZ)):
+    """Hall of +-half with corridor stubs to the ports; the hall ceiling is higher than the stubs'
+    (a bulkhead closes the step). holes: boxes cut out of the floor (stairwells)."""
     m = M()
-    hall_p = sbox(-PZ, -PZ, PZ, PZ)
-    stubs = [sbox(*r) for r in stub_rects(ports)]
+    hx, hy = half
+    hall_p = sbox(-hx, -hy, hx, hy)
+    stubs = [sbox(*r) for r in stub_rects(ports, half)]
     fl = unary_union([hall_p] + stubs)
-    if hole:
+    for hole in holes:
         fl = fl.difference(sbox(*hole))
     flat("floor", fl, 0.0, m[floor])
     flat("ceil", hall_p, h, m["dg_ceil"], up=False, uvs=UV_CEIL)
-    for k, s in enumerate(stubs):
-        flat(f"sceil{k}", s, CH, m["dg_ceil"], up=False, uvs=UV_CEIL)
+    for k, s_ in enumerate(stubs):
+        flat(f"sceil{k}", s_, CH, m["dg_ceil"], up=False, uvs=UV_CEIL)
     whole = unary_union([hall_p] + stubs)
     runs = outline(whole, [port_box(*p) for p in ports])
-    # walls: stubs CH high, hall walls h high
-    hr = [r for r in runs if max(abs(r[0][0]), abs(r[0][1]), abs(r[1][0]), abs(r[1][1])) <= PZ + 0.01
-          and (abs(abs(r[0][0]) - PZ) < 0.01 and abs(abs(r[1][0]) - PZ) < 0.01 or abs(abs(r[0][1]) - PZ) < 0.01 and abs(abs(r[1][1]) - PZ) < 0.01)]
-    sr = [r for r in runs if r not in hr]
+
+    def on_hall(r):
+        (ax, ay), (bx_, by) = r[0], r[1]
+        inside = max(abs(ax), abs(bx_)) <= hx + 0.01 and max(abs(ay), abs(by)) <= hy + 0.01
+        return inside and ((abs(abs(ax) - hx) < 0.01 and abs(abs(bx_) - hx) < 0.01) or (abs(abs(ay) - hy) < 0.01 and abs(abs(by) - hy) < 0.01))
+    hr = [r for r in runs if on_hall(r)]
+    sr = [r for r in runs if not on_hall(r)]
     walls("hw", hr, 0.0, h, m["dg_wall"])
     walls("sw", sr, 0.0, CH, m["dg_wall"])
     # bulkheads over the stub mouths (from the stub ceiling up to the hall ceiling)
     for k, (x, y, side) in enumerate(ports):
         if side in ("N", "S"):
-            yy = math.copysign(PZ, y)
+            yy = math.copysign(hy, y)
             put(BU.vrect(f"{K.CUR}_bk{k}", (x - HW, yy), (x + HW, yy), CH, h, m["dg_wall"], K.CUR, (0, -math.copysign(1, y), 0)))
         else:
-            xx = math.copysign(PZ, x)
+            xx = math.copysign(hx, x)
             put(BU.vrect(f"{K.CUR}_bk{k}", (xx, y - HW), (xx, y + HW), CH, h, m["dg_wall"], K.CUR, (-math.copysign(1, x), 0, 0)))
     ceiling_lights(hall_p, h, margin=1.2, power=LIGHT_W * 1.2)
-    for k, s in enumerate(stubs):
-        ceiling_lights(s, CH, name=f"Ls{k}")
+    for k, s_ in enumerate(stubs):
+        ceiling_lights(s_, CH, name=f"Ls{k}")
     return runs, hr, sr
 
 
@@ -427,74 +432,96 @@ def build_plaza():
 
 # ------------------------------------------------------------------ the station (gate hall + platform)
 
-GATE_PORTS = [(-8.0, C, "N"), (8.0, C, "N"), (-C, 8.0, "W"), (C, 8.0, "E")]
-GH = 3.6                 # gate hall ceiling
-GATE_Y = -1.0            # gate line
-SW = (-8.0, -13.0, 8.0, -7.0)     # stairwell opening in the hall floor (x0, y0, x1, y1)
-PL = (-48.0, 48.0)       # platform x range
-PY = (-15.0, -5.0)       # platform y range
+CELLS32 = [(-C, -HC), (0.0, -HC), (C, -HC), (-C, HC), (0.0, HC), (C, HC)]
+GATE_PORTS = [(-C, C, "N"), (0.0, C, "N"), (C, C, "N"), (-1.5 * C, HC, "W"), (1.5 * C, HC, "E")]
+GHX, GHY = 21.0, 13.0      # half sizes of the gate hall (3 x 2 cells)
+GH = 4.0                 # gate hall ceiling
+GATE_Y = 0.0             # gate line
+SWS = [(-20.0, -13.0, -4.6, -7.0), (4.6, -13.0, 20.0, -7.0)]   # the two stairwells (x0, y0, x1, y1)
+PL = (-80.0, 80.0)       # platform x range (160 m)
+PY = (-17.0, -3.0)       # island platform y range (14 m)
 TRACK_W = 4.5
-PCH = 4.0                # platform ceiling height
+PCH = 4.5                # platform ceiling height
 
 
-@module("STATION", CELLS2, GATE_PORTS)
+@module("STATION", CELLS32, GATE_PORTS)
 def build_station():
+    """The station: a gate hall of 42 x 26 m on the mall level with two banks of gates and the office
+    window between them; behind the gates two stairs 6 m wide lead down to a 14 m wide, 160 m long
+    island platform."""
     gate_hall()
     platform()
-    station_stair()
+    for k, sw in enumerate(SWS):
+        station_stair(k, sw)
 
 
 def gate_hall():
     m = M()
-    runs, hr, sr = hall(GATE_PORTS, h=GH, hole=SW)
-    # gate line: 7 cabinets (6 passages) left of the middle, the office window, fences to the walls
-    n = 7
-    xs = [-5.0 + i * 1.0 for i in range(n)]
-    for i, x in enumerate(xs):
-        BU.Z_B1 = 0.0
-        BU._gate_cabinet(f"{K.CUR}_g{i}", Vector((x, GATE_Y, 0.0)), math.pi / 2, 1, i, n - 1, m)
+    runs, hr, sr = hall(GATE_PORTS, h=GH, holes=SWS, half=(GHX, GHY))
+    # gate line: two banks of 7 cabinets (6 passages each), the office window between them, fences to the walls
+    banks = []
+    for bk, xc in enumerate((-9.0, 9.0)):
+        xs = [xc - 3.0 + i * 1.0 for i in range(7)]
+        banks.append(xs)
+        for i, x in enumerate(xs):
+            BU._gate_cabinet(f"{K.CUR}_g{bk}{i}", Vector((x, GATE_Y, 0.0)), math.pi / 2, 1, i, 6, m)
+        hanging_sign(f"gs{bk}", (xc, GATE_Y + 0.6, 3.1), (0, 1), m["gate_a"], w=4.8, h=0.4, ceil=GH)
     for o in list(BU.coll("B1").objects):          # _gate_cabinet puts its parts in B1
         BU.put(o, K.CUR)
-    BU.gate_office(f"{K.CUR}_off", (2.6, GATE_Y), (6.0, GATE_Y), (0, 1), m, cname=K.CUR)
-    BU.gate_fence(f"{K.CUR}_fw", (-PZ, GATE_Y), (xs[0] - 0.14, GATE_Y), m, cname=K.CUR)
-    BU.gate_fence(f"{K.CUR}_fm", (xs[-1] + 0.14, GATE_Y), (2.6, GATE_Y), m, cname=K.CUR)
-    BU.gate_fence(f"{K.CUR}_fe", (6.0, GATE_Y), (PZ, GATE_Y), m, cname=K.CUR)
-    hanging_sign("gs", (-1.0, GATE_Y + 0.6, 2.9), (0, 1), m["gate_a"], w=4.8, h=0.4, ceil=GH)
-    # stairwell balustrade (glass on a steel base) on the open sides of the opening
-    x0, y0, x1, y1 = SW
-    for k, (a, b) in enumerate((((x0, y1), (x1, y1)), ((x1, y0), (x1, y1)))):
-        lo = (min(a[0], b[0]) - 0.03, min(a[1], b[1]) - 0.03, 0.0)
-        hi = (max(a[0], b[0]) + 0.03, max(a[1], b[1]) + 0.03, 0.15)
-        bx(f"bb{k}", lo, hi, m["steel_brushed"])
-        bx(f"bg{k}", (lo[0] + 0.015, lo[1] + 0.015, 0.15), (hi[0] - 0.015, hi[1] - 0.015, 1.05), m["glass_rail"])
-        bx(f"bt{k}", (lo[0], lo[1], 1.05), (hi[0], hi[1], 1.10), m["steel_brushed"], deco=True)
-    # stairwell walls down to the platform ceiling level (inside the slab)
-    for k, (a, b, nn) in enumerate((((x0, y0), (x1, y0), (0, 1)), ((x1, y1), (x0, y1), (0, -1)), ((x1, y0), (x1, y1), (-1, 0)), ((x0, y1), (x0, y0), (1, 0)))):
-        put(BU.vrect(f"{K.CUR}_sww{k}", a, b, Z2 + PCH, 0.0, m["dg_wall"], K.CUR, (nn[0], nn[1], 0)))
-    hanging_sign("ps", (x0 + 1.2, -4.0, 2.6), (-1, 0), m["mall_sign"], w=2.4, h=0.4, ceil=GH)
-    wall_fixtures(runs, {_runs_by(runs, (0, -1), (0, PZ)): [("poster", 2.5, "adp0"), ("poster", 7.5, "adp2")]})
+    BU.gate_office(f"{K.CUR}_off", (-3.0, GATE_Y), (3.0, GATE_Y), (0, 1), m, cname=K.CUR)
+    BU.gate_fence(f"{K.CUR}_f0", (-GHX, GATE_Y), (banks[0][0] - 0.14, GATE_Y), m, cname=K.CUR)
+    BU.gate_fence(f"{K.CUR}_f1", (banks[0][-1] + 0.14, GATE_Y), (-3.0, GATE_Y), m, cname=K.CUR)
+    BU.gate_fence(f"{K.CUR}_f2", (3.0, GATE_Y), (banks[1][0] - 0.14, GATE_Y), m, cname=K.CUR)
+    BU.gate_fence(f"{K.CUR}_f3", (banks[1][-1] + 0.14, GATE_Y), (GHX, GATE_Y), m, cname=K.CUR)
+    for k, (x0, y0, x1, y1) in enumerate(SWS):
+        # balustrade (glass on a steel base) on the long side and the far end of each stairwell
+        far = x0 if x0 < 0 else x1
+        for j, (a, b) in enumerate((((x0, y1), (x1, y1)), ((far, y0), (far, y1)))):
+            lo = (min(a[0], b[0]) - 0.03, min(a[1], b[1]) - 0.03, 0.0)
+            hi = (max(a[0], b[0]) + 0.03, max(a[1], b[1]) + 0.03, 0.15)
+            bx(f"bb{k}{j}", lo, hi, m["steel_brushed"])
+            bx(f"bg{k}{j}", (lo[0] + 0.015, lo[1] + 0.015, 0.15), (hi[0] - 0.015, hi[1] - 0.015, 1.05), m["glass_rail"])
+            bx(f"bt{k}{j}", (lo[0], lo[1], 1.05), (hi[0], hi[1], 1.10), m["steel_brushed"], deco=True)
+        # walls of the opening down to the platform ceiling (inside the slab)
+        for j, (a, b, nn) in enumerate((((x0, y0), (x1, y0), (0, 1)), ((x1, y1), (x0, y1), (0, -1)), ((x1, y0), (x1, y1), (-1, 0)), ((x0, y1), (x0, y0), (1, 0)))):
+            put(BU.vrect(f"{K.CUR}_sww{k}{j}", a, b, Z2 + PCH, 0.0, m["dg_wall"], K.CUR, (nn[0], nn[1], 0)))
+        top = x1 if x0 < 0 else x0
+        hanging_sign(f"ps{k}", (top + (-1.0 if x0 < 0 else 1.0), -4.2, 3.0), (1, 0) if x0 < 0 else (-1, 0), m["mall_sign"], w=2.4, h=0.4, ceil=GH)
+    north = [i for i, r in enumerate(runs) if r in hr and abs(r[0][1] - GHY) < 0.01 and abs(r[1][1] - GHY) < 0.01]
+    for i in north:
+        a, b, n = runs[i]
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        items = [("poster", s_, f"adp{(i + j) % 3}") for j, s_ in enumerate(np.arange(1.5, L - 1.0, 3.0))]
+        if items:
+            wall_fixtures(runs, {i: items})
+    ceiling_dressing([("cam", -6.0, 4.0), ("cam", 6.0, 4.0), ("cam", 0.0, -4.0), ("smoke", -14.0, 6.0), ("smoke", 14.0, 6.0),
+                      ("smoke", -12.0, -4.0), ("smoke", 12.0, -4.0)], z=GH)
 
 
 def platform():
-    """Island platform (Z2) with half-height platform doors, tracks behind them, tiled track walls
-    with station name boards, columns down the middle, lights in rows."""
+    """Island platform (Z2) 14 m wide with half-height platform doors, tracks behind them, tiled track
+    walls with station name boards and ads, columns down the middle, lights in rows."""
     m = M()
     x0, x1 = PL
     ya, yb = PY
     zf = Z2
     zc = Z2 + PCH
     tw_s, tw_n = ya - TRACK_W, yb + TRACK_W
-    plat = sbox(x0, ya, x1, yb).difference(sbox(SW[0], SW[1], SW[2] - 0.8, SW[3]))
+    plat = sbox(x0, ya, x1, yb)
+    for sw in SWS:
+        foot = sw[0] if sw[0] < 0 else sw[2]
+        plat = plat.difference(sbox(min(foot + (0.8 if sw[0] < 0 else -0.8), sw[2] if sw[0] < 0 else sw[0]), sw[1],
+                                    max(foot + (0.8 if sw[0] < 0 else -0.8), sw[2] if sw[0] < 0 else sw[0]), sw[3]))
     with Frame((0, 0, zf), 0):
         flat("pfl", plat, 0.0, m["b2_floor"])
-    # ceiling over platform and tracks
+    ceil_p = sbox(x0, tw_s, x1, tw_n)
+    for sw in SWS:
+        ceil_p = ceil_p.difference(sbox(*sw))
     with Frame((0, 0, zc), 0):
-        flat("pce", sbox(x0, tw_s, x1, tw_n).difference(sbox(*SW)), 0.0, m["ceil_b2"], up=False, uvs=UV_CEIL)
-    # track beds and walls
+        flat("pce", ceil_p, 0.0, m["ceil_b2"], up=False, uvs=UV_CEIL)
     for k, (y0, y1, wall_y, nn) in enumerate(((tw_s, ya, tw_s, 1), (yb, tw_n, tw_n, -1))):
         with Frame((0, 0, zf - 1.1), 0):
             flat(f"tb{k}", sbox(x0 - 16, y0, x1 + 16, y1), 0.0, m["concrete"])
-        # platform edge face down to the track bed
         ye = ya if k == 0 else yb
         put(BU.vrect(f"{K.CUR}_pe{k}", (x0, ye), (x1, ye), zf - 1.1, zf, m["concrete"], K.CUR, (0, -nn, 0)))
         put(BU.vrect(f"{K.CUR}_tw{k}", (x0 - 16, wall_y), (x1 + 16, wall_y), zf - 1.1, zc, m["track_tile"], K.CUR, (0, nn, 0), 2.16))
@@ -502,107 +529,104 @@ def platform():
             bx(f"rl{k}{r}", (x0 - 16, yr - 0.035, zf - 1.1), (x1 + 16, yr + 0.035, zf - 0.95), m["rail"], deco=True)
         for xs_ in np.arange(x0 - 15.5, x1 + 16, 0.6):
             bx(f"sl{k}{xs_:.1f}", (xs_ - 0.1, y0 + 0.5, zf - 1.1), (xs_ + 0.1, y1 - 0.5, zf - 1.04), m["concrete"], deco=True)
-        # station name boards and ads on the track wall
+        rgt = (-1, 0, 0) if nn > 0 else (1, 0, 0)
         for j, xx in enumerate(np.arange(x0 + 8, x1, 16.0)):
-            c = (xx, wall_y + nn * 0.027, zf + 2.2)
-            bx(f"nbf{k}{j}", (xx - 1.55, min(wall_y, wall_y + nn * 0.025), zf + 1.8), (xx + 1.55, max(wall_y, wall_y + nn * 0.025), zf + 2.6), m["clad_dark"], deco=True)
-            quad(f"nb{k}{j}", c, ((-1, 0, 0) if nn > 0 else (1, 0, 0)), (0, 0, 1), 3.0, 0.7, m["station_a"])
-            for s in (-5.0, 5.0):
-                cc = (xx + s, wall_y + nn * 0.027, zf + 1.9)
-                bx(f"adf{k}{j}{s:.0f}", (xx + s - 1.41, min(wall_y, wall_y + nn * 0.025), zf + 1.09), (xx + s + 1.41, max(wall_y, wall_y + nn * 0.025), zf + 2.71), m["clad_dark"], deco=True)
-                quad(f"ad{k}{j}{s:.0f}", cc, ((-1, 0, 0) if nn > 0 else (1, 0, 0)), (0, 0, 1), 2.7, 1.5, m[f"ad{(j + k) % 3}"])
-        # track tunnels beyond the platform ends (dark) and their end walls
+            c = (xx, wall_y + nn * 0.027, zf + 2.4)
+            bx(f"nbf{k}{j}", (xx - 1.55, min(wall_y, wall_y + nn * 0.025), zf + 2.0), (xx + 1.55, max(wall_y, wall_y + nn * 0.025), zf + 2.8), m["clad_dark"], deco=True)
+            quad(f"nb{k}{j}", c, rgt, (0, 0, 1), 3.0, 0.7, m["station_a"])
+            for s_ in (-5.0, 5.0):
+                cc = (xx + s_, wall_y + nn * 0.027, zf + 2.0)
+                bx(f"adf{k}{j}{s_:.0f}", (xx + s_ - 1.41, min(wall_y, wall_y + nn * 0.025), zf + 1.19), (xx + s_ + 1.41, max(wall_y, wall_y + nn * 0.025), zf + 2.81), m["clad_dark"], deco=True)
+                quad(f"ad{k}{j}{s_:.0f}", cc, rgt, (0, 0, 1), 2.7, 1.5, m[f"ad{(j + k) % 3}"])
         for s in (-1, 1):
             xe = x0 - 16 if s < 0 else x1 + 16
             put(BU.vrect(f"{K.CUR}_te{k}{s}", (xe, y0), (xe, y1), zf - 1.1, zc, m["concrete"], K.CUR, (-s, 0, 0)))
             with Frame((0, 0, zc), 0):
                 flat(f"tce{k}{s}", sbox(min(xe, x0 if s < 0 else x1), y0, max(xe, x0 if s < 0 else x1), y1), 0.0, m["concrete"], up=False)
-        # platform doors along the edge: fixed panels with door pairs every 4.5 m, shut
-        ye = ya if k == 0 else yb
         for j, xx in enumerate(np.arange(x0 + 1.5, x1 - 1.0, 4.5)):
             bx(f"pd{k}{j}", (xx, ye - 0.08 if nn > 0 else ye, zf), (xx + 3.0, ye if nn > 0 else ye + 0.08, zf + 1.3), m["psd_panel"])
             bx(f"pdd{k}{j}", (xx + 3.0, ye - 0.06 if nn > 0 else ye + 0.02, zf), (xx + 4.5, ye - 0.02 if nn > 0 else ye + 0.06, zf + 1.3), m["psd_glass"])
-        # tactile warning line inside the doors
         tl_y = ye + nn * 0.5
         with Frame((0, 0, zf), 0):
             tactile_line(f"ptl{k}", (x0 + 0.3, tl_y), (x1 - 0.3, tl_y))
-    # end walls of the platform and the walls between platform/track ends
     for s in (-1, 1):
         xe = x0 if s < 0 else x1
         put(BU.vrect(f"{K.CUR}_pew{s}", (xe, ya), (xe, yb), zf, zc, m["wall_white"], K.CUR, (-s, 0, 0)))
         with Frame((xe, (ya + yb) / 2, zf), 90 if s > 0 else -90):
             K.staff_door(f"psd{s}", 0.0)
-    # columns along the middle (not in the stair zone) with benches between
-    for j, xx in enumerate(np.arange(x0 + 6, x1 - 5, 8.0)):
-        if SW[0] - 1.5 < xx < SW[2] + 3.0:
+    yc = (ya + yb) / 2
+    for j, xx in enumerate(np.arange(x0 + 6, x1 - 5, 10.0)):
+        if -21.5 < xx < 21.5:
             continue
-        bx(f"pc{j}", (xx - 0.35, -10.35, zf), (xx + 0.35, -9.65, zc), m["column"])
-        with Frame((xx + 2.0, -10.0, zf), 0):
+        bx(f"pc{j}", (xx - 0.4, yc - 0.4, zf), (xx + 0.4, yc + 0.4, zc), m["column"])
+        with Frame((xx + 2.2, yc, zf), 0):
             K.bench(f"pb{j}", 0.0, 1.8)
-    # lights in two rows over the platform, dimmer rows over the tracks
     for j, xx in enumerate(np.arange(x0 + 2.0, x1, 4.0)):
-        for r, yy in enumerate((-12.5, -7.5)):
-            if SW[0] - 0.5 < xx < SW[2] and SW[1] < yy < SW[3]:
+        for r, yy in enumerate((ya + 2.5, yc, yb - 2.5)):
+            if any(sw[0] - 0.5 < xx < sw[2] + 0.5 and sw[1] - 0.5 < yy < sw[3] + 0.5 for sw in SWS):
                 continue
             light_panel(f"pl{j}{r}", (xx, yy, zc - 0.002), LIGHT_W * 1.1, size=(1.2, 0.3))
         for r, yy in enumerate((tw_s + 2.2, tw_n - 2.2)):
             light_panel(f"tl{j}{r}", (xx, yy, zc - 0.002), LIGHT_W * 0.35, size=(1.2, 0.15))
-    # hanging direction signs and departure boards
-    for k, xx in enumerate((-30.0, 30.0)):
-        hanging_sign_at(f"dp{k}", (xx, -10.0, zf + 2.75), (1, 0) if xx < 0 else (-1, 0), m["mall_sign"], zc)
+    for k, xx in enumerate((-50.0, 50.0)):
+        hanging_sign_at(f"dp{k}", (xx, yc, zf + 3.1), (1, 0) if xx < 0 else (-1, 0), m["mall_sign"], zc)
 
 
 def hanging_sign_at(name, c, facing, mat, zc, w=2.4, h=0.4):
     """hanging_sign for a ceiling other than the corridor's."""
-    old = K.CH
-    K.CH = zc
-    try:
-        hanging_sign(name, c, facing, mat, w, h)
-    finally:
-        K.CH = old
+    hanging_sign(name, c, facing, mat, w, h, ceil=zc)
 
 
-def station_stair():
-    """Stair from the paid side of the gate hall (west end of the opening, z=0) down to the platform
-    (east), with a landing half way; the walls of the opening run down to the platform."""
+def station_stair(k, sw):
+    """Stair from the paid concourse (the end of the opening nearer the middle, z=0) down to the
+    platform (toward the platform end), a landing half way; walls on both sides down on the
+    platform, an end wall under its top."""
     m = M()
-    x0, y0, x1, y1 = SW
+    x0, y0, x1, y1 = sw
+    d = -1.0 if x0 < 0 else 1.0            # direction of descent along x
+    top = x1 if x0 < 0 else x0
     rise = 7.0 / 44
     run = 0.30
-    xa = x0 + 0.2
     pts = []
     z = 0.0
-    x = xa
+    x = top + d * 0.2
+    pts.append((x, 0.0))
     for i in range(44):
         if i == 22:
-            bx("lnd", (x, y0, Z2), (x + 2.0, y1, z), m["stair"], deco=True)
+            xa, xb = sorted((x, x + d * 2.0))
+            bx(f"lnd{k}", (xa, y0, Z2), (xb, y1, z), m["stair"], deco=True)
             pts.append((x, z))
-            x += 2.0
+            x += d * 2.0
             pts.append((x, z))
         z -= rise
-        bx(f"st{i}", (x, y0, Z2), (x + run, y1, z), m["stair"], deco=True)
-        bx(f"sn{i}", (x + run - 0.05, y0 + 0.05, z - 0.002), (x + run, y1 - 0.05, z + 0.003), m["nosing"], deco=True)
-        if i == 0:
-            pts.insert(0, (x, 0.0))
-        x += run
+        xa, xb = sorted((x, x + d * run))
+        bx(f"st{k}{i}", (xa, y0, Z2), (xb, y1, z), m["stair"], deco=True)
+        nx = x + d * run
+        na, nb = sorted((nx - d * 0.05, nx))
+        bx(f"sn{k}{i}", (na, y0 + 0.05, z - 0.002), (nb, y1 - 0.05, z + 0.003), m["nosing"], deco=True)
+        x = nx
     pts.append((x, Z2))
-    xb = x
-    # walls on both sides of the stair from the platform up to the hall floor, end wall under the top
-    for k, (yy, nn) in enumerate(((y0, 1), (y1, -1))):
-        put(BU.vrect(f"{K.CUR}_sws{k}", (x0, yy), (xb + 0.01, yy), Z2, Z2 + PCH, m["dg_wall"], K.CUR, (0, nn, 0)))
-        put(BU.vrect(f"{K.CUR}_swo{k}", (x0, yy + (-0.01 if nn > 0 else 0.01)), (xb, yy + (-0.01 if nn > 0 else 0.01)), Z2, Z2 + PCH, m["dg_wall"], K.CUR, (0, -nn, 0)))
-    put(BU.vrect(f"{K.CUR}_swe", (x0 - 0.01, y0), (x0 - 0.01, y1), Z2, Z2 + PCH, m["dg_wall"], K.CUR, (-1, 0, 0)))
-    # handrails along both walls
-    for k, yy in enumerate((y0 + 0.06, y1 - 0.06)):
+    foot = x
+    ea, eb = sorted((top, foot))
+    for j, (yy, nn) in enumerate(((y0, 1), (y1, -1))):
+        put(BU.vrect(f"{K.CUR}_sws{k}{j}", (ea, yy), (eb, yy), Z2, Z2 + PCH, m["dg_wall"], K.CUR, (0, nn, 0)))
+        put(BU.vrect(f"{K.CUR}_swo{k}{j}", (ea, yy - 0.01 * nn), (eb, yy - 0.01 * nn), Z2, Z2 + PCH, m["dg_wall"], K.CUR, (0, -nn, 0)))
+    put(BU.vrect(f"{K.CUR}_swe{k}", (top + 0.01 * d * -1, y0), (top + 0.01 * d * -1, y1), Z2, Z2 + PCH, m["dg_wall"], K.CUR, (-d, 0, 0)))
+    for j, yy in enumerate((y0 + 0.06, y1 - 0.06, (y0 + y1) / 2)):
         for a, b in zip(pts[:-1], pts[1:]):
             p0 = Vector((a[0], yy, a[1] + 0.85))
             p1 = Vector((b[0], yy, b[1] + 0.85))
-            d = p1 - p0
-            ob = B.cylinder(f"{K.CUR}_hr{k}{a[0]:.1f}", (0, 0, 0), 0.022, d.length, m["handrail_steel"], axis="X", segs=12)
+            dv = p1 - p0
+            if dv.length < 0.01:
+                continue
+            ob = B.cylinder(f"{K.CUR}_hr{k}{j}{a[0]:.1f}", (0, 0, 0), 0.022, dv.length, m["handrail_steel"], axis="X", segs=12)
             ob.location = (p0 + p1) / 2
-            ob.rotation_euler = (0, -math.atan2(d.z, d.x), 0)
+            ob.rotation_euler = (0, -math.atan2(dv.z, dv.x), 0)
             put(ob, deco=True)
-    # ramp the walker uses over the steps
-    for k, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
-        ramp(f"ramp{k}", [(a[0], y0, a[1]), (b[0], y0, b[1]), (b[0], y1, b[1]), (a[0], y1, a[1])])
-    hanging_sign_at("pfs", (xb + 1.0, -10.0, Z2 + 2.75), (1, 0), m["mall_sign"], Z2 + PCH)
+            if j == 2:
+                for t in np.linspace(0.1, 0.9, 3):
+                    q = p0 + dv * t
+                    put(B.cylinder(f"{K.CUR}_hp{k}{a[0]:.1f}{t:.1f}", (q.x, q.y, q.z - 0.43), 0.02, 0.86, m["handrail_steel"], segs=10), deco=True)
+    for j, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
+        ramp(f"ramp{k}{j}", [(a[0], y0, a[1]), (b[0], y0, b[1]), (b[0], y1, b[1]), (a[0], y1, a[1])][::(1 if d > 0 else -1)])
+    hanging_sign_at(f"pfs{k}", (foot + d * 1.2, (y0 + y1) / 2, Z2 + 3.1), (d, 0), m["mall_sign"], Z2 + PCH)

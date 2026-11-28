@@ -155,9 +155,9 @@ def module_probes(name):
     if name in ("PLAZA",):
         return [((0, 0, 2.1), (26.0, 26.0, 4.2))]
     if name == "STATION":
-        out = [((0, 0, 1.8), (26.0, 26.0, 3.6))]
-        for x in np.arange(-40, 41, 16.0):
-            out.append(((float(x), -10.0, K.Z2 + 2.0), (16.0, 19.0, 4.0)))
+        out = [((0, 0, 2.0), (42.0, 26.0, 4.0))]
+        for x in np.arange(-70, 71, 20.0):
+            out.append(((float(x), -10.0, K.Z2 + 2.25), (20.0, 23.0, 4.5)))
         return out
     if name == "EXIT":
         return [((0, -5.5, 1.5), (6.0, 5.0, 3.0)), ((0, 3.0, 3.6), (4.4, 12.0, 6.0))]
@@ -185,8 +185,8 @@ def spawns(layout):
         out.append({"name": label, "pos": g(p), "fwd": g((math.cos(h), math.sin(h), 0.0))})
     st = [i for i in ins if i["module"] == "STATION"]
     if st:
-        at(st[0], (-1.5, 9.0), 0.0, -90, "あかり町駅 改札前")      # in line with a gate passage
-        at(st[0], (26.0, -7.5), K.Z2, 180, "あかり町駅 ホーム")      # beside the columns down the middle
+        at(st[0], (-9.5, 9.0), 0.0, -90, "あかり町駅 改札前")      # in line with a gate passage
+        at(st[0], (-26.0, -14.5), K.Z2, 180, "あかり町駅 ホーム")    # on the platform, past a stair foot
     pz = [i for i in ins if i["module"] == "PLAZA"]
     if pz:
         at(pz[0], (-8.0, -11.0), 0.0, 60, "ひかり広場")
@@ -194,7 +194,7 @@ def spawns(layout):
     if sh:
         at(sh[len(sh) // 2], (0.0, -7.0), 0.0, 90, "地下街 商店通り")
     if len(st) > 1:
-        at(st[1], (-1.5, 9.0), 0.0, -90, "もう一つの駅 改札前")
+        at(st[1], (9.5, 9.0), 0.0, -90, "もう一つの駅 改札前")
     return out
 
 

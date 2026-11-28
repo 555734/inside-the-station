@@ -536,10 +536,15 @@ def cafe_items(p, tables, counter_y, rng):
     bx(f"{p}cake_g", (cx0, counter_y - 0.3, 1.05), (cx1, counter_y + 0.3, 1.45), m["shop_glass"], deco=True)
     put(B.image_quad(f"{K.CUR}_{p}cake_l", ((cx0 + cx1) / 2, counter_y, 1.445), (1, 0, 0), (0, -1, 0), cx1 - cx0 - 0.1, 0.4, m["fridge"]), deco=True)
     cb = Batch()
-    for i, x in enumerate(np.arange(cx0 + 0.12, cx1 - 0.1, 0.2)):
-        top = ["cream", "chocolate", "strawberry", "cream"][i % 4]
-        cb.prism_tri((x, counter_y, 1.05), 0.1, 0.07, 0.09, SW(top), SW("cream"))
-        cb.ellipsoid((x, counter_y, 1.13), (0.018, 0.018, 0.018), SW("strawberry"), segs=6, rings=3)
+    # whole round cakes on paper doilies: sponge sides, cream or chocolate tops, a ring of strawberries
+    for i, x in enumerate(np.arange(cx0 + 0.2, cx1 - 0.15, 0.36)):
+        top = ["cream", "chocolate", "cream", "strawberry", "cream"][i % 5]
+        cb.cyl((x, counter_y, 1.05), 0.13, 0.004, SW("paper"), SW("paper"), segs=16)
+        cb.cyl((x, counter_y, 1.054), 0.11, 0.075, SW("bread_light") if top != "chocolate" else SW("chocolate"), SW(top), segs=18)
+        for k in range(8):
+            a_ = 2 * math.pi * k / 8
+            cb.ellipsoid((x + math.cos(a_) * 0.08, counter_y + math.sin(a_) * 0.08, 1.141), (0.016, 0.016, 0.014),
+                         SW("strawberry" if top != "strawberry" else "cream"), segs=6, rings=3)
     cb.obj(f"{p}cakes", m["goods"])
 
 
