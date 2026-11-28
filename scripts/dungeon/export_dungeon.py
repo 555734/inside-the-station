@@ -191,6 +191,7 @@ def main():
         render, col = module_meshes("M_" + name)
         ob = ES.join_meshes(f"{name}_0", render)
         co = ES.join_meshes(f"COL_{name}", col)
+        co.hide_render = True        # it lies on the very surfaces being baked: it would shade them black
         cols.append(co)
         for me in {id(m): m for m in render + col}.values():
             if me.users == 0:
@@ -241,6 +242,8 @@ def main():
     log("maze data written:", len(chunks), "chunks,", sum(s * s for s in sizes.values()) / 1e6, "Mtexel")
     if a.no_bake:
         return
+    K.B.render_settings(argparse.Namespace(out=os.path.join(out, "x.exr"), width=640, samples=a.samples, noise=0.01))
+    bpy.context.scene.cycles.sample_clamp_indirect = 12.0
     only = set(a.only.split(",")) if a.only else set(used_mods)
     for name in used_mods:
         if name not in only:

@@ -57,7 +57,9 @@ def shop(sid, tag):
     flat(f"{p}ce", sbox(0.0, -D, W, -0.3), zc, m["panel_white"], up=False)
     put(BU.vrect(f"{K.CUR}_{p}ceb", (pil, -0.3), (W - pil, -0.3), 2.45, zc, m["panel_white"], K.CUR, (0, -1, 0)))
     wall_mat = {"cafe": m["wood"], "ramen": m["wood"], "soba": m["wood"]}.get(kind, m["panel_white"])
-    for a, b, n in (((0.0, -0.3), (0.0, -D), (1, 0)), ((W, -D), (W, -0.3), (-1, 0)), ((0.0, -D), (W, -D), (0, 1))):
+    # side walls 5 cm in from the shared line: the neighbour's wall stands back to back with this one
+    # and would shade it black in the bake if both were on the same plane (the pilasters hide the gap)
+    for a, b, n in (((0.05, -0.3), (0.05, -D), (1, 0)), ((W - 0.05, -D), (W - 0.05, -0.3), (-1, 0)), ((0.05, -D), (W - 0.05, -D), (0, 1))):
         put(BU.vrect(f"{K.CUR}_{p}w{a[0]:.0f}{b[1]:.0f}", a, b, 0.0, zc, wall_mat, K.CUR, (n[0], n[1], 0)))
     # front: glazing with mullions and an open entrance 2 m wide in the middle (doors slid open)
     ex0, ex1 = W / 2 - 1.0, W / 2 + 1.0

@@ -180,7 +180,7 @@ func _load_maze() -> void:
 		var cname: String = mi.name
 		var lmi: Dictionary = meta["lightmaps"].get(cname, {})
 		var lm: Texture2D
-		if lmi.is_empty() or not ResourceLoader.exists("res://data/" + lmi["file"]):
+		if lmi.is_empty() or not ResourceLoader.exists("res://data/" + lmi["file"]) or OS.get_cmdline_user_args().has("--flatlm"):
 			var img := Image.create(4, 4, false, Image.FORMAT_RGB8)
 			img.fill(Color(0.6, 0.6, 0.6))
 			lm = ImageTexture.create_from_image(img)
