@@ -61,6 +61,7 @@ SCENE_PARAMS = {
     "station.glb": {"meshes/create_shadow_meshes": "false"},
     "far.glb": {"meshes/create_shadow_meshes": "false"},
     "modules.glb": {"meshes/create_shadow_meshes": "false"},          # the maze (scripts/dungeon)
+    "goods.glb": {"meshes/create_shadow_meshes": "false"},
     "collision.glb": {"meshes/create_shadow_meshes": "false", "meshes/generate_lods": "false",
                       "meshes/ensure_tangents": "false"},
 }

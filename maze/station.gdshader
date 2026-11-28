@@ -25,6 +25,8 @@ uniform float emission_strength = 0.0;
 
 uniform sampler2D lightmap : filter_linear_mipmap, repeat_disable;
 uniform float lm_gain = 1.0;
+// small goods (bottles, packs, books...) carry their baked light in the vertex colours instead
+uniform bool vertex_lm = false;
 // a metal shows its lit surroundings: the lightmap holds the light arriving at it (baked as if
 // it were not metal), and this share of it comes back off the rough metal; the reflection probes
 // add the sharp part on top (where none reaches, stainless no longer goes black)
@@ -54,7 +56,7 @@ void fragment() {
 		r += wear_rough * (w - 0.5) + 0.5 * wear_rough * (w2 - 0.5);
 		alb *= 1.0 + wear_albedo * (w2 - 0.5);
 	}
-	vec3 l = texture(lightmap, UV2).rgb;
+	vec3 l = vertex_lm ? COLOR.rgb : texture(lightmap, UV2).rgb;
 	l *= l;
 	vec3 irradiance = l / max(vec3(1.0) - l, vec3(0.002));
 	vec3 em = vec3(0.0);

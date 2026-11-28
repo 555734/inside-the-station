@@ -15,6 +15,7 @@ from shapely.ops import unary_union
 import build_scene as B
 import build_umeda as BU
 import kit as K
+import kit_goods as KG
 from kit import (C, HC, HW, CH, UV_FLOOR, UV_CEIL, LIGHT_W, Z2, E_, PORT, module, put, bx, quad,
                  Frame, wall_frame, flat, outline, walls, ceiling_lights, light_panel, tactile_line,
                  tactile_dots, wall_fixtures, ceiling_dressing, hanging_sign, ramp, _runs_by)
@@ -76,17 +77,24 @@ def shop(sid, tag):
             bx(f"{p}leaf{s}", (xx - 0.5, -0.26, 0.02), (xx + 0.5, -0.24, 2.36), m["shop_glass"], deco=True)
     else:
         bx(f"{p}tr", (pil, -0.2, 2.40), (W - pil, -0.12, 2.45), m["steel_brushed"], deco=True)
-    # lights
+    # lights: shops are brighter than the street (a convenience store far brighter): rows of line
+    # lights in the stores that sell from shelves, warm downlights in the eateries and the florist
     warm = kind in ("cafe", "bakery", "ramen", "soba", "flowers")
-    power = 70.0 if kind in ("konbini", "drug") else 50.0
     k = 0
-    for x in np.arange(1.0, W, 2.0):
-        for y in (-1.3, -3.3):
-            put(B.cylinder(f"{K.CUR}_{p}dl{k}", (x, y, zc - 0.004), 0.07, 0.008, m["downlight"], segs=16), deco=True)
-            ob = B.area_light(f"{K.CUR}_{p}A{k}", (x, y, zc - 0.02), 0.14, 0.14, power, (1.0, 0.86, 0.7) if warm else (1.0, 0.98, 0.95), camera=False)
-            ob.data.spread = math.radians(140)
-            put(ob, deco=True)
-            k += 1
+    if not warm:
+        power = 190.0 if kind in ("konbini", "drug") else 130.0
+        for x in (1.6, 4.0, 6.4):
+            for y in (-1.1, -2.45, -3.8):
+                K.light_panel(f"{p}ll{k}", (x, y, zc - 0.002), power, size=(1.2, 0.16))
+                k += 1
+    else:
+        for x in np.arange(1.0, W, 2.0):
+            for y in (-1.3, -3.3):
+                put(B.cylinder(f"{K.CUR}_{p}dl{k}", (x, y, zc - 0.004), 0.07, 0.008, m["downlight"], segs=16), deco=True)
+                ob = B.area_light(f"{K.CUR}_{p}A{k}", (x, y, zc - 0.02), 0.14, 0.14, 170.0, (1.0, 0.86, 0.7), camera=False)
+                ob.data.spread = math.radians(140)
+                put(ob, deco=True)
+                k += 1
     FIT[kind](p, sid)
 
 
@@ -146,76 +154,83 @@ def table(p, x, y, r=0.35, h=0.72, chairs=2):
                 bx(f"{p}chl{x:.1f}{y:.1f}{i}{lx}{ly}", (cx + lx - 0.015, cy + ly - 0.015, 0.0), (cx + lx + 0.015, cy + ly + 0.015, 0.42), m["steel"], deco=True)
 
 
+def _rng(p):
+    return np.random.default_rng(sum(ord(c) for c in p))
+
+
 def fit_konbini(p, sid):
-    m = M()
-    # drinks fridges along the back wall (lit inside), gondolas, a counter with registers by the door
-    bx(f"{p}frb", (0.3, -D, 0.0), (W - 0.3, -D + 0.75, 2.1), m["shelf_white"])
-    for i, x in enumerate(np.arange(0.3, W - 0.31, 0.9)):
-        quad(f"{p}frg{i}", (x + 0.45, -D + 0.753, 1.05), (-1, 0, 0), (0, 0, 1), 0.84, 1.75, m["fridge_front"])
-        bx(f"{p}frh{i}", (x + 0.7, -D + 0.755, 0.9), (x + 0.73, -D + 0.80, 1.3), m["steel"], deco=True)
-    for j, yy in enumerate((-3.3, -2.0)):
-        shelf_unit(f"{p}g{j}", 2.6, 6.8, yy - 0.3, yy + 0.3, ("+y", "-y"))
-    counter(p, 0.4, 2.4, -1.5, -0.9, body="shelf_white")
-    register(p, 0.9, -1.2)
-    register(p, 1.9, -1.2)
-    wall_shelf(p, 0.05, 0.5, -3.0, 1, h=1.6, rows=4, tex=("shelf_mart2",), depth=0.4, name="ms")
+    """Convenience store: a wall of drinks coolers at the back, two double-sided gondolas of snacks,
+    cup noodles and sweets, an open cooler of rice balls, sandwiches and lunch boxes, a magazine rack
+    along the window, the counter with two registers by the door."""
+    rng = _rng(p)
+    KG.wall_cooler(p, 0.3, W - 0.3, -D, rng)
+    KG.gondola(p, 2.4, 7.0, -3.05, ("+y", "-y"), (("snacks", "boxes", "snacks", "cups"), ("cups", "snacks", "boxes", "snacks")), rng)
+    KG.gondola(p + "b", 2.4, 7.0, -1.75, ("+y", "-y"), (("boxes", "snacks", "cups", "boxes"), ("drug_box", "boxes", "snacks", "cups")), rng)
+    KG.open_cooler(p, 0.35, 2.05, -3.4, rng)
+    KG.magazine_rack(p, 5.3, 7.6, -0.32, rng)
+    counter(p, 0.4, 2.2, -1.7, -1.1, body="shelf_white")
+    register(p, 0.8, -1.4)
+    register(p, 1.8, -1.4)
 
 
 def fit_cafe(p, sid):
     m = M()
+    rng = _rng(p)
     counter(p, 1.0, 7.0, -D + 0.3, -D + 1.0, body="wood")
     bx(f"{p}esp", (5.5, -D + 0.45, 1.0), (6.3, -D + 0.85, 1.45), m["steel"], deco=True)
+    bx(f"{p}grd", (4.6, -D + 0.5, 1.0), (4.9, -D + 0.8, 1.35), m["panel_grey"], deco=True)
     quad(f"{p}menu", (4.0, -D + 0.01, 2.2), (-1, 0, 0), (0, 0, 1), 2.4, 0.6, m["menu_cafe"])
-    for i, (x, y) in enumerate(((1.3, -2.4), (3.3, -2.6), (6.4, -2.4), (1.3, -1.2), (6.6, -1.2))):
+    tables = ((1.3, -2.4), (3.3, -2.6), (6.4, -2.4), (1.3, -1.2), (6.6, -1.2))
+    for i, (x, y) in enumerate(tables):
         table(p, x, y)
+    KG.cafe_items(p, tables, -D + 0.65, rng)
     for x in (2.0, 4.0, 6.0):
         put(B.cylinder(f"{K.CUR}_{p}pd{x}", (x, -D + 0.7, 2.2), 0.12, 0.25, m["glassbox_w"], segs=16, r2=0.05), deco=True)
         put(B.cylinder(f"{K.CUR}_{p}pdc{x}", (x, -D + 0.7, 2.6), 0.006, 0.62, m["handrail"], segs=6), deco=True)
 
 
 def fit_bakery(p, sid):
-    m = M()
-    for k, x0 in enumerate((0.4, 4.3)):
-        wall_shelf(p, x0, x0 + 3.3, -D, 1, h=1.8, rows=4, tex=("shelf_bread",), depth=0.5, name=f"bs{k}")
-    bx(f"{p}tbl", (2.6, -3.0, 0.0), (5.4, -2.0, 0.85), m["wood"])
-    for k, x in enumerate((2.9, 3.6, 4.3, 5.0)):
-        quad(f"{p}tray{k}", (x + 0.15, -2.5, 0.852), (1, 0, 0), (0, 1, 0), 0.6, 0.8, m["shelf_bread"])
-    counter(p, 5.6, 7.6, -1.6, -0.9, body="wood")
-    register(p, 6.6, -1.25)
+    rng = _rng(p)
+    KG.bread_shelf(p, 0.4, W - 0.4, -D, rng)
+    KG.bread_shelf(p + "i", 2.5, 5.5, -3.1, rng, tiers=(0.85,))
+    counter(p, 5.8, 7.6, -1.7, -1.0, body="wood")
+    register(p, 6.7, -1.35)
 
 
 def fit_drug(p, sid):
-    for j, yy in enumerate((-3.6, -2.2)):
-        shelf_unit(f"{p}g{j}", 1.2, 6.8, yy - 0.3, yy + 0.3, ("+y", "-y"), h=1.6, tex=("shelf_drug", "shelf_mart"))
-    wall_shelf(p, 0.4, W - 0.4, -D, 1, h=2.0, rows=5, tex=("shelf_drug", "shelf_mart2"), depth=0.4)
+    rng = _rng(p)
+    KG.gondola(p + "w", 0.4, W - 0.4, -D + 0.03, ("+y",), (("drug_b", "drug_box", "drug_b", "drug_box", "boxes"),), rng,
+               h=1.95, boards=(0.10, 0.46, 0.82, 1.18, 1.54))
+    KG.drug_gondola(p, 1.4, 6.8, -3.2, rng)
+    KG.drug_gondola(p + "b", 1.4, 6.8, -1.9, rng)
     counter(p, 0.4, 1.0, -3.0, -1.0, body="shelf_white")
+    register(p, 0.7, -2.0)
 
 
 def fit_books(p, sid):
-    m = M()
-    wall_shelf(p, 0.3, W - 0.3, -D, 1, h=2.1, rows=6, tex=("shelf_books", "shelf_books2"), depth=0.35, name="bk")
-    for j, yy in enumerate((-3.2,)):
-        shelf_unit(f"{p}g{j}", 1.5, 6.5, yy - 0.3, yy + 0.3, ("+y", "-y"), h=1.4, rows=4, tex=("shelf_books", "shelf_books2"))
-    rng = np.random.default_rng(len(p))
-    for t, (x0, x1) in enumerate(((1.4, 3.2), (4.8, 6.6))):
-        bx(f"{p}tb{t}", (x0, -2.0, 0.0), (x1, -1.3, 0.8), m["wood"])
-        for i in range(8):
-            cx = x0 + 0.2 + (x1 - x0 - 0.4) * (i % 4) / 3
-            cy = -1.85 + 0.4 * (i // 4)
-            hh = 0.03 * int(rng.integers(2, 6))
-            bx(f"{p}bs{t}{i}", (cx - 0.1, cy - 0.14, 0.8), (cx + 0.1, cy + 0.14, 0.8 + hh), m["fabric"][int(rng.integers(len(m["fabric"])))], deco=True)
-    counter(p, 6.8, 7.7, -3.6, -2.2, body="wood")
+    rng = _rng(p)
+    KG.bookcase(p, 0.3, W - 0.3, -D, rng)
+    KG.bookcase(p + "f", 1.5, 6.5, -3.25, rng, h=1.4, shelves=4, toward=1)
+    KG.bookcase(p + "r", 1.5, 6.5, -3.27, rng, h=1.4, shelves=4, toward=-1)
+    KG.book_table(p, 1.4, 3.2, -2.0, -1.3, rng)
+    KG.book_table(p + "2", 4.8, 6.6, -2.0, -1.3, rng)
+    counter(p, 6.9, 7.7, -3.0, -2.2, body="wood")
+    register(p, 7.3, -2.6)
 
 
 def fit_ramen(p, sid):
     m = M()
+    rng = _rng(p)
     # kitchen behind an L-shaped counter, stools in front of it, menu tags over the kitchen
     bx(f"{p}kit", (0.3, -D, 0.0), (W - 0.3, -D + 0.7, 0.9), m["steel_brushed"])
     bx(f"{p}hood", (0.5, -D, 2.1), (W - 0.5, -D + 0.6, 2.6), m["steel_brushed"], deco=True)
+    for i, x in enumerate((1.2, 2.4, 3.6)):
+        put(B.cylinder(f"{K.CUR}_{p}pot{i}", (x, -D + 0.35, 1.05), 0.22, 0.3, m["steel"], segs=16))
     counter(p, 0.3, W - 0.3, -3.2, -2.6, h=1.0, body="wood")
     counter(p, 0.3, 0.9, -2.6, -1.0, h=1.0, body="wood")
     for x in np.arange(1.6, W - 0.5, 0.75):
         stool(p, x, -2.2)
+    KG.ramen_items(p, 1.2, W - 0.4, -2.9, rng)
     quad(f"{p}menu", (4.0, -D + 0.62, 2.35), (-1, 0, 0), (0, 0, 1), 2.4, 0.6, m["menu_ramen"])
     quad(f"{p}noren", (4.0, 0.02, 2.05), (-1, 0, 0), (0, 0, 1), 2.0, 0.8, m["noren_ramen"])
     bx(f"{p}tkt", (W - 1.3, -0.9, 0.0), (W - 0.6, -0.4, 1.7), m["vend_body"])
@@ -223,45 +238,47 @@ def fit_ramen(p, sid):
 
 def fit_soba(p, sid):
     m = M()
+    rng = _rng(p)
     bx(f"{p}kit", (0.3, -D, 0.0), (W - 0.3, -D + 0.8, 0.9), m["steel_brushed"])
+    for i, x in enumerate((1.5, 3.0)):
+        put(B.cylinder(f"{K.CUR}_{p}pot{i}", (x, -D + 0.4, 1.05), 0.25, 0.32, m["steel"], segs=16))
     counter(p, 0.3, W - 0.3, -3.6, -3.1, h=1.05, body="wood")
     counter(p, 0.3, 0.8, -3.1, -0.6, h=1.05, body="wood")
     counter(p, W - 0.8, W - 0.3, -3.1, -0.6, h=1.05, body="wood")
+    KG.ramen_items(p, 1.0, W - 1.0, -3.35, rng)
     quad(f"{p}menu", (4.0, -D + 0.02, 2.3), (-1, 0, 0), (0, 0, 1), 2.4, 0.6, m["menu_soba"])
     quad(f"{p}noren", (4.0, 0.02, 2.05), (-1, 0, 0), (0, 0, 1), 2.6, 0.8, m["noren_soba"])
 
 
 def fit_clothes(p, sid):
     m = M()
-    rng = np.random.default_rng(7)
-    for r, (x0, x1, y) in enumerate(((0.6, 3.6, -3.8), (4.4, 7.4, -3.8), (2.0, 6.0, -2.2))):
-        bx(f"{p}rk{r}", (x0, y - 0.02, 1.45), (x1, y + 0.02, 1.49), m["steel"], deco=True)
-        for s in (x0, x1):
-            bx(f"{p}rkp{r}{s:.1f}", (s - 0.02, y - 0.02, 0.0), (s + 0.02, y + 0.02, 1.49), m["steel"])
-        for i, x in enumerate(np.arange(x0 + 0.1, x1 - 0.05, 0.12)):
-            c = m["fabric"][int(rng.integers(len(m["fabric"])))]
-            bx(f"{p}cl{r}{i}", (x, y - 0.25, 0.75), (x + 0.04, y + 0.25, 1.47), c, deco=True)
-    wall_shelf(p, 0.4, W - 0.4, -D, 1, h=2.0, rows=4, tex=("shelf_mart",), depth=0.3, name="cs")
+    rng = _rng(p)
+    KG.clothes_rack(p, 0.6, 3.6, -3.9, rng)
+    KG.clothes_rack(p + "b", 4.4, 7.4, -3.9, rng)
+    KG.clothes_rack(p + "c", 2.2, 5.8, -2.5, rng)
+    KG.folded_stacks(p, 1.0, 3.0, -1.5, -0.8, rng)
+    KG.folded_stacks(p + "b", 5.0, 6.6, -1.5, -0.8, rng)
     put(B.cylinder(f"{K.CUR}_{p}mqb", (7.2, -1.2, 0.015), 0.22, 0.03, m["steel"], segs=20))
     put(B.cylinder(f"{K.CUR}_{p}mqp", (7.2, -1.2, 0.47), 0.02, 0.9, m["steel"], segs=8), deco=True)
     put(B.cylinder(f"{K.CUR}_{p}mq", (7.2, -1.2, 1.17), 0.18, 0.55, m["kiosk_white"], segs=16))
     put(B.sphere(f"{K.CUR}_{p}mqh", (7.2, -1.2, 1.55), 0.11, m["kiosk_white"]), deco=True)
-    bx(f"{p}mir", (0.01, -2.5, 0.3), (0.03, -1.5, 2.0), m["mirror"], deco=True)
+    bx(f"{p}mir", (0.06, -2.5, 0.3), (0.08, -1.5, 2.0), m["mirror"], deco=True)
 
 
 def fit_flowers(p, sid):
+    rng = _rng(p)
+    # buckets in front by the window, a stepped stand of buckets along the back wall
     m = M()
-    rng = np.random.default_rng(11)
-    for k, (x0, y0) in enumerate(((0.6, -1.2), (2.2, -1.0), (5.4, -1.0), (6.8, -1.2), (1.0, -4.3), (3.0, -4.3), (5.0, -4.3), (7.0, -4.3))):
-        put(B.cylinder(f"{K.CUR}_{p}bk{k}", (x0, y0, 0.25), 0.22, 0.5, m["steel_brushed"], segs=20))
-        put(B.cylinder(f"{K.CUR}_{p}lv{k}", (x0, y0, 0.66), 0.2, 0.34, m["flower"][5], segs=16, r2=0.14), deco=True)
-        for j in range(7):
-            a = rng.uniform(0, 2 * math.pi)
-            r = rng.uniform(0, 0.16)
-            put(B.sphere(f"{K.CUR}_{p}fl{k}{j}", (x0 + math.cos(a) * r * 0.7, y0 + math.sin(a) * r * 0.7, 0.84 + rng.uniform(0, 0.04)), 0.07,
-                         m["flower"][int(rng.integers(len(m["flower"])))], segs=10), deco=True)
-    wall_shelf(p, 0.4, W - 0.4, -D, 1, h=1.6, rows=3, tex=("shelf_mart2",), depth=0.4, name="fs")
+    for t, (z, y0, y1) in enumerate(((0.0, -D, -3.9), (0.35, -D, -4.3))):
+        if t:
+            bx(f"{p}fst{t}", (0.4, y0, 0.0), (W - 0.4, y1, z), m["wood"])
+    front = [(0.6, -1.0), (1.3, -1.25), (6.7, -1.0), (6.0, -1.25), (2.2, -0.9), (5.8, -0.55)]
+    low = [(x, -4.1) for x in np.arange(0.9, W - 0.6, 0.62)]
+    high = [(x, -4.65, 0.35) for x in np.arange(1.2, W - 0.8, 0.62)]
+    KG.flowers(p, front + low, rng)
+    KG.flowers(p + "h", [(x, y) for x, y, _ in high], rng, z0=0.35)
     counter(p, 3.0, 5.0, -3.2, -2.6, body="wood")
+    register(p, 4.0, -2.9)
 
 
 FIT = {"konbini": fit_konbini, "cafe": fit_cafe, "bakery": fit_bakery, "drug": fit_drug, "books": fit_books,

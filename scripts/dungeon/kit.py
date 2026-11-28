@@ -554,6 +554,8 @@ def materials():
     M["tile_shop"] = M["b2_floor"]
     for k in ("shelf_mart", "shelf_mart2", "shelf_drinks", "shelf_drug", "shelf_books", "shelf_books2", "shelf_bread"):
         M[k] = B.printed(k + "_s", g[k], rough=0.4, coat=0.0, emission=0.0)
+    import kit_goods
+    kit_goods.materials(M)
     M["fabric"] = [B.plain(f"fabric{i}", c, 0.8) for i, c in enumerate(
         [(0.08, 0.10, 0.20), (0.55, 0.52, 0.47), (0.60, 0.15, 0.12), (0.85, 0.83, 0.78), (0.15, 0.30, 0.20), (0.05, 0.05, 0.05)])]
     M["flower"] = [B.plain(f"flower{i}", c, 0.7) for i, c in enumerate(

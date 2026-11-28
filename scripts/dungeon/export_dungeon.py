@@ -44,9 +44,11 @@ def g(p):
 
 
 def module_meshes(cname):
-    """World-space copies (modifiers applied) of a module's meshes: what is drawn, what collides."""
+    """World-space copies (modifiers applied) of a module's meshes: what is drawn with a lightmap,
+    what collides, and the goods lit per vertex (bottles, packs, books... too many and too small for
+    a lightmap chart each)."""
     dg = bpy.context.evaluated_depsgraph_get()
-    render, col = [], []
+    render, col, vlit = [], [], []
     for ob in bpy.data.collections[cname].all_objects:
         if ob.type != "MESH" or not ob.data.polygons:
             continue
@@ -62,10 +64,45 @@ def module_meshes(cname):
         if ob.get("ramp"):
             col.append(me)
             continue
+        if ob.get("vlm"):
+            vlit.append(me)
+            continue
         render.append(me)
         if not ob.get("nocol"):
             col.append(me)
-    return render, col
+    return render, col, vlit
+
+
+def bake_vertex(ob, samples, raw_dir):
+    """Irradiance at every face corner of a vertex-lit object (Cycles bake to a colour attribute),
+    kept raw in raw_dir/<name>.npz and written encoded (sqrt(E / (E + 1)), as the lightmaps)."""
+    path = os.path.join(raw_dir, ob.name + ".npz")
+    me = ob.data
+    if "LM" not in me.color_attributes:
+        me.color_attributes.new("LM", "FLOAT_COLOR", "CORNER")
+    me.color_attributes.active_color = me.color_attributes["LM"]
+    n = len(me.loops)
+    if os.path.exists(path):
+        e = np.load(path)["e"].astype(np.float32)
+    else:
+        for o in bpy.context.scene.objects:
+            o.select_set(False)
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        sc = bpy.context.scene
+        sc.cycles.samples = samples
+        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT", "INDIRECT"}, target="VERTEX_COLORS", use_clear=True)
+        a = np.empty(n * 4, np.float32)
+        me.color_attributes["LM"].data.foreach_get("color", a)
+        e = a.reshape(n, 4)[:, :3]
+        os.makedirs(raw_dir, exist_ok=True)
+        np.savez_compressed(path, e=e.astype(np.float16))
+    e = np.clip(e, 0, None)
+    enc = np.sqrt(e / (e + 1.0))
+    out = np.ones((n, 4), np.float32)
+    out[:, :3] = enc
+    me.color_attributes["LM"].data.foreach_set("color", out.ravel())
+    return float(np.percentile(e, 99)) if len(e) else 0.0
 
 
 def split_lights():
@@ -190,14 +227,17 @@ def main():
     bpy.context.view_layer.update()
     split_lights()
     exclude_sources()
-    chunks, sizes, cols, mod_chunks = [], {}, [], {}
+    chunks, sizes, cols, mod_chunks, vobjs = [], {}, [], {}, {}
     for name in used_mods:
-        render, col = module_meshes("M_" + name)
+        render, col, vlit = module_meshes("M_" + name)
+        if vlit:
+            vo = ES.join_meshes(f"{name}_V", vlit)
+            vobjs[name] = vo
         ob = ES.join_meshes(f"{name}_0", render)
         co = ES.join_meshes(f"COL_{name}", col)
         co.hide_render = True        # it lies on the very surfaces being baked: it would shade them black
         cols.append(co)
-        for me in {id(m): m for m in render + col}.values():
+        for me in {id(m): m for m in render + col + vlit}.values():
             if me.users == 0:
                 bpy.data.meshes.remove(me)
         splits = {}
@@ -209,7 +249,7 @@ def main():
         log(f"{name}: {len(render)} meshes, lightmaps {[(o.name, s) for o, s in lay]}")
     # materials and textures
     used = {}
-    for ob in chunks:
+    for ob in chunks + list(vobjs.values()):
         for m in ob.data.materials:
             if m is not None:
                 used[m.name] = m
@@ -223,7 +263,7 @@ def main():
         if k in props:
             common[k] = v
 
-    def export(objs, path, mats=True):
+    def export(objs, path, mats=True, colors=False):
         for o in bpy.context.scene.objects:
             o.select_set(False)
         for o in objs:
@@ -231,12 +271,15 @@ def main():
         kw = dict(common)
         if not mats:
             kw["export_materials"] = "NONE"
+        if "export_vertex_color" in props:
+            kw["export_vertex_color"] = "ACTIVE" if colors else "NONE"
         bpy.ops.export_scene.gltf(filepath=path, **kw)
     export(chunks, os.path.join(out, "modules.glb"))
     export(cols, os.path.join(out, "collision.glb"), mats=False)
     meta = {
         "modules": {n: {"chunks": mod_chunks[n], "probes": [godot_probe(c, s) for c, s in module_probes(n)]} for n in used_mods},
         "lightmaps": {ob.name: {"file": f"lightmaps/{ob.name}.png"} for ob in chunks},
+        "goods": {n: vo.name for n, vo in vobjs.items()},
         "instances": [{"module": i["module"], "pos": g(i["pos"]), "rot": i["rot"], "exit": i.get("exit")} for i in layout["instances"]],
         "spawns": spawns(layout),
         "exposure": 0.55,
@@ -254,17 +297,26 @@ def main():
             continue
         mine = [o for o in chunks if o.name in mod_chunks[name]]
         todo = [o for o in mine if not os.path.exists(os.path.join(raw, o.name + ".npz"))]
-        if not todo:
+        vo = vobjs.get(name)
+        if not todo and vo is None:
             continue
         for o in chunks:
             o.hide_render = o not in mine
+        for n_, o in vobjs.items():
+            o.hide_render = n_ != name
         ctx = context_for(name)
-        ES.bake(mine, sizes, a.samples, raw)
+        if todo:
+            ES.bake(mine, sizes, a.samples, raw)
+        if vo is not None:
+            p99 = bake_vertex(vo, a.samples * 4, raw)
+            log(f"goods of {name} lit per vertex (p99 {p99:.2f})")
         for e in ctx:
             bpy.data.objects.remove(e)
         log(f"baked {name}")
-    for o in chunks:
+    for o in chunks + list(vobjs.values()):
         o.hide_render = False
+    if vobjs:
+        export(list(vobjs.values()), os.path.join(out, "goods.glb"), colors=True)
     log("done")
 
 

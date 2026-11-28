@@ -192,6 +192,21 @@ func _load_maze() -> void:
 			ms.append(_material(sm.resource_name if sm != null else "", lm))
 		chunk[cname] = [mi.mesh, ms]
 	lib.free()
+	# goods lit per vertex (one mesh per module that has shops)
+	var goods := {}
+	if ResourceLoader.exists("res://data/goods.glb"):
+		var gl: Node = load("res://data/goods.glb").instantiate()
+		var gms := []
+		_find_meshes(gl, gms)
+		for mi in gms:
+			var ms := []
+			for s in mi.mesh.get_surface_count():
+				var sm: Material = mi.mesh.surface_get_material(s)
+				var mat := _material(sm.resource_name if sm != null else "", null)
+				mat.set_shader_parameter("vertex_lm", true)
+				ms.append(mat)
+			goods[String(mi.name)] = [mi.mesh, ms]
+		gl.free()
 	# collision shapes per module
 	var cs: Node = load("res://data/collision.glb").instantiate()
 	var cms := []
@@ -221,6 +236,16 @@ func _load_maze() -> void:
 			mi.visibility_range_end = DRAW_DIST + 40.0 if mod == "STATION" else DRAW_DIST
 			mi.transform = xf
 			add_child(mi)
+		var gname: String = meta.get("goods", {}).get(mod, "")
+		if goods.has(gname):
+			var gi := MeshInstance3D.new()
+			gi.mesh = goods[gname][0]
+			for s in goods[gname][1].size():
+				gi.set_surface_override_material(s, goods[gname][1][s])
+			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			gi.visibility_range_end = 40.0
+			gi.transform = xf
+			add_child(gi)
 		if shapes.has(mod):
 			var sh := CollisionShape3D.new()
 			sh.shape = shapes[mod]
